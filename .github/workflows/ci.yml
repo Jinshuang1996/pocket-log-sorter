@@ -10,9 +10,9 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: Run metadata tests
-        run: ./test.sh
+        run: zsh ./test.sh
       - name: Build universal app
-        run: ./build.sh
+        run: zsh ./build.sh
       - name: Verify bundle signature
         run: codesign --verify --deep --strict --verbose=2 "dist/Pocket色彩分拣器.app"
       - name: Verify architectures
