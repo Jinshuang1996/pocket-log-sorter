@@ -8,6 +8,7 @@
 flowchart LR
     A["拖拽或文件选择器"] --> B["展开目录并过滤视频"]
     B --> C["读取 DJI djmd 第一包"]
+    B --> T["匹配同名 LRF 并生成缩略图"]
     C --> D{"ColorGammaSxS / record_mode"}
     D -->|"22"| E["D-Log 2"]
     D -->|"2"| F["D-Log"]
@@ -18,9 +19,10 @@ flowchart LR
     F --> J
     G --> J
     I --> J
+    T --> K["按色彩分组显示缩略图"]
 ```
 
-应用不分析画面像素，也不解码整段视频。识别主要依赖相机写入的拍摄元数据，因此速度接近读取文件头和少量表格的速度。
+应用不会用画面内容猜测色彩格式。缩略图仅解码 LRF 或原视频中的单帧；识别仍然依赖相机写入的拍摄元数据，因此不会因画面曝光或调色而误判。
 
 ## 2. 源码文件
 
@@ -105,7 +107,16 @@ ColorGammaSxS == nil && record_mode == 8 // 普通 Rec.709
 
 仅有 BT.709 时不归入普通模式，这是有意的安全策略。
 
-## 5. 并发与 UI 状态
+## 5. LRF 匹配与缩略图
+
+`ThumbnailLoader.companionLRF` 枚举视频所在目录，并按以下规则查找代理文件：
+
+1. 扩展名忽略大小写后为 `lrf`。
+2. 去掉扩展名后的文件名与视频完全相同，比较时忽略大小写。
+
+找到 LRF 后，`AVAssetImageGenerator` 在大约 8% 时长、最多第 1 秒处抽取一帧，输出尺寸限制为 720×405。LRF 解码失败时重新对原视频执行同一流程。此过程不改变 `Detector.inspect` 的输入；色彩模式始终从原视频读取。
+
+## 6. 并发与 UI 状态
 
 `SorterModel` 标记为 `@MainActor`，所有 SwiftUI 状态更新都发生在主 actor。每个视频的磁盘和元数据读取通过 `Task.detached` 执行，避免大型批次冻结界面。
 
@@ -114,9 +125,11 @@ ColorGammaSxS == nil && record_mode == 8 // 普通 Rec.709
 - 源 URL
 - 分析状态
 - `DetectionResult`
+- 缩略图和时长
+- 匹配的 LRF URL
 - 文件操作错误
 
-## 6. 文件整理安全策略
+## 7. 文件整理安全策略
 
 应用支持复制和移动：
 
@@ -124,8 +137,9 @@ ColorGammaSxS == nil && record_mode == 8 // 普通 Rec.709
 - `uniqueDestination` 在冲突时追加 `_2`、`_3`，不会覆盖。
 - 单个文件失败只记录到该行，不阻止后续文件。
 - 未知模式使用独立目录，避免错误 LUT 污染工作流。
+- 启用“同时导出匹配的 LRF”时，代理文件与视频进入同一目录；LRF 失败不会回滚已成功导出的视频。
 
-## 7. 测试设计
+## 8. 测试设计
 
 测试不包含真实用户视频。`DjiMetadataReaderTests.swift` 在运行时构造最小 MP4：
 
@@ -143,7 +157,7 @@ ftyp + mdat(djmd protobuf) + moov/trak/mdia/minf/stbl
 
 增加新映射时应先添加失败测试，再扩展分类规则。
 
-## 8. 扩展建议
+## 9. 扩展建议
 
 ### 添加新的枚举值
 
