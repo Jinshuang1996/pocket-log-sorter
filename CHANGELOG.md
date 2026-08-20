@@ -1,0 +1,58 @@
+# Changelog
+
+All notable changes to Pocket Log Sorter are documented here.
+
+## 2.3.0 - 2026-08-20
+
+### Fixed
+
+- `.LRF` files can now be selected directly, dragged into the app or discovered while importing folders.
+- Imported LRF proxies are paired with same-name videos but never shown as independent clip cards.
+- The player checks whether an LRF is playable and automatically falls back to the source video when needed.
+
+### Changed
+
+- Moving source files is now the default export mode.
+- LRF files imported before their matching videos are cached and attached when the videos arrive.
+
+## 2.2.0 - 2026-08-20
+
+### Added
+
+- Built-in AVKit video player with LRF/original-source switching.
+- Donut chart showing the count and percentage of every detected color profile.
+- Per-clip export checkboxes, select all, deselect all and selected-only export.
+- Two-direction scrolling confined to the lower profile-group workspace.
+
+### Fixed
+
+- Thumbnail cards now use strict geometry bounds and no longer overlap.
+- Long filenames, profile labels, status text and output paths are truncated safely.
+- The import, preview, analysis and export controls remain fixed while browsing large batches.
+
+## 2.1.0 - 2026-08-20
+
+### Added
+
+- Professional dark workspace UI with a large selected-clip preview and profile-group columns.
+- Automatic case-insensitive matching of same-name DJI `.LRF` proxy files.
+- Fast thumbnail and duration extraction from LRF, with original-video fallback.
+- Optional export of matching LRF files beside each classified source video.
+- Per-profile clip counts, selected-file evidence and LRF match indicators.
+
+### Changed
+
+- The import area is now permanently clickable as well as drag-and-drop enabled.
+- Sorting actions and output settings are consolidated in the right inspector.
+
+## 2.0.0 - 2026-08-20
+
+### Added
+
+- Native macOS SwiftUI interface with drag-and-drop and clickable file picker.
+- Native DJI `djmd` MP4/MOV reader and schema-less protobuf parser.
+- Detection for D-Log 2, D-Log, D-Log M, HLG, HDR/PQ and Rec.709.
+- Copy and move sorting modes with collision-safe filenames.
+- Universal Apple Silicon and Intel builds.
+- Custom application icon and DMG packaging.
+- Unit fixtures for DJI gamma and record-mode metadata paths.
