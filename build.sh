@@ -21,6 +21,7 @@ for ARCH in arm64 x86_64; do
     -framework SwiftUI \
     -framework AppKit \
     -framework AVFoundation \
+    -framework AVKit \
     -framework UniformTypeIdentifiers \
     "$SCRIPT_DIR/PocketColorSorter.swift" \
     "$SCRIPT_DIR/DjiMetadataReader.swift" \

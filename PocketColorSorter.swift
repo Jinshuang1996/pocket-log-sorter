@@ -1,5 +1,6 @@
 import SwiftUI
 import AVFoundation
+import AVKit
 import UniformTypeIdentifiers
 import AppKit
 
@@ -199,10 +200,12 @@ final class SorterModel: ObservableObject {
     @Published var outputURL: URL?
     @Published var copyFiles = true
     @Published var includeLRF = true
+    @Published var selectedForExport: Set<UUID> = []
     @Published var status = "拖入视频或点击导入"
 
     var readyCount: Int { items.filter { !$0.isWorking }.count }
-    var canSort: Bool { !items.isEmpty && items.allSatisfy { !$0.isWorking } && outputURL != nil }
+    var canSort: Bool { !selectedForExport.isEmpty && items.allSatisfy { !$0.isWorking } && outputURL != nil }
+    var selectedCount: Int { selectedForExport.count }
     var lrfCount: Int { items.filter { $0.lrfURL != nil }.count }
     var detectedGroupCount: Int { Set(items.compactMap { $0.result?.profile }).count }
 
@@ -216,6 +219,7 @@ final class SorterModel: ObservableObject {
         }
         let newItems = fresh.map { MediaItem(url: $0) }
         items.append(contentsOf: newItems)
+        selectedForExport.formUnion(newItems.map(\.id))
         status = "正在分析 \(fresh.count) 个视频…"
 
         for item in newItems {
@@ -287,6 +291,7 @@ final class SorterModel: ObservableObject {
         status = copyFiles ? "正在复制并分类…" : "正在移动并分类…"
 
         for index in items.indices {
+            guard selectedForExport.contains(items[index].id) else { continue }
             guard let profile = items[index].result?.profile else { continue }
             let folder = root.appendingPathComponent(profile.folderName, isDirectory: true)
             do {
@@ -320,7 +325,21 @@ final class SorterModel: ObservableObject {
 
     func clear() {
         items.removeAll()
+        selectedForExport.removeAll()
         status = "拖入视频或点击导入"
+    }
+
+    func selectAll() {
+        selectedForExport = Set(items.map(\.id))
+    }
+
+    func deselectAll() {
+        selectedForExport.removeAll()
+    }
+
+    func toggleExportSelection(_ id: UUID) {
+        if selectedForExport.contains(id) { selectedForExport.remove(id) }
+        else { selectedForExport.insert(id) }
     }
 
     private func uniqueDestination(for source: URL, in folder: URL, preferredName: String? = nil) -> URL {
@@ -456,54 +475,174 @@ struct SidebarView: View {
     }
 }
 
-struct PreviewView: View {
+struct VideoPreviewView: View {
     let item: MediaItem?
+    @State private var player = AVPlayer()
+    @State private var playOriginal = false
+
+    private var playbackURL: URL? {
+        guard let item else { return nil }
+        return playOriginal ? item.url : (item.lrfURL ?? item.url)
+    }
 
     var body: some View {
         Panel {
-            ZStack(alignment: .bottom) {
-                Rectangle().fill(Color.black.opacity(0.45))
-                if let image = item?.thumbnail {
-                    Image(nsImage: image)
-                        .resizable()
-                        .scaledToFit()
-                        .frame(maxWidth: .infinity, maxHeight: .infinity)
-                } else {
-                    VStack(spacing: 12) {
-                        Image(systemName: item == nil ? "film.stack" : "waveform.path.ecg")
-                            .font(.system(size: 46, weight: .thin))
-                            .foregroundStyle(.white.opacity(0.20))
-                        Text(item == nil ? "导入素材后在这里预览" : "正在生成视频缩略图…")
-                            .foregroundStyle(.secondary)
+            VStack(spacing: 0) {
+                ZStack {
+                    Color.black
+                    if item == nil {
+                        VStack(spacing: 12) {
+                            Image(systemName: "play.rectangle")
+                                .font(.system(size: 48, weight: .thin))
+                                .foregroundStyle(.white.opacity(0.22))
+                            Text("导入素材后可在这里播放")
+                                .font(.subheadline)
+                                .foregroundStyle(.secondary)
+                        }
+                    } else {
+                        VideoPlayer(player: player)
                     }
                 }
 
-                if let item {
-                    HStack(spacing: 12) {
-                        Image(systemName: item.result?.profile.symbol ?? "hourglass")
-                            .foregroundStyle(item.result?.profile.color ?? .secondary)
-                        VStack(alignment: .leading, spacing: 2) {
-                            Text(item.url.lastPathComponent)
-                                .font(.subheadline.weight(.semibold))
-                                .lineLimit(1)
-                            Text(item.lrfURL == nil ? "原视频预览" : "LRF 低分辨率预览")
-                                .font(.caption)
-                                .foregroundStyle(.secondary)
-                        }
-                        Spacer()
-                        Text(item.result?.profile.rawValue ?? "分析中")
-                            .font(.caption.bold())
-                            .padding(.horizontal, 9)
-                            .padding(.vertical, 5)
-                            .background((item.result?.profile.color ?? .gray).opacity(0.18), in: Capsule())
-                            .foregroundStyle(item.result?.profile.color ?? .secondary)
+                HStack(spacing: 10) {
+                    Image(systemName: item?.result?.profile.symbol ?? "film")
+                        .foregroundStyle(item?.result?.profile.color ?? .secondary)
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(item?.url.lastPathComponent ?? "未选择素材")
+                            .font(.subheadline.weight(.semibold))
+                            .lineLimit(1)
+                            .truncationMode(.middle)
+                        Text(item == nil ? "点击下方缩略图选择视频" : playbackSourceText)
+                            .font(.caption2)
+                            .foregroundStyle(.secondary)
+                            .lineLimit(1)
                     }
-                    .padding(12)
-                    .background(.black.opacity(0.72))
+                    Spacer(minLength: 8)
+                    if item?.lrfURL != nil {
+                        Button(playOriginal ? "播放 LRF" : "播放原片") {
+                            playOriginal.toggle()
+                        }
+                        .buttonStyle(.bordered)
+                        .controlSize(.small)
+                    }
+                    Text(item?.result?.profile.rawValue ?? "—")
+                        .font(.caption.bold())
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.75)
+                        .padding(.horizontal, 9)
+                        .padding(.vertical, 5)
+                        .background((item?.result?.profile.color ?? .gray).opacity(0.18), in: Capsule())
+                        .foregroundStyle(item?.result?.profile.color ?? .secondary)
                 }
+                .padding(.horizontal, 12)
+                .frame(height: 54)
+                .background(Color.black.opacity(0.56))
             }
         }
-        .frame(minHeight: 310)
+        .onAppear(perform: loadPlayer)
+        .onChange(of: item?.id) { _ in
+            playOriginal = false
+            loadPlayer()
+        }
+        .onChange(of: playOriginal) { _ in loadPlayer() }
+        .onDisappear { player.pause() }
+    }
+
+    private var playbackSourceText: String {
+        if playOriginal || item?.lrfURL == nil { return "正在播放原视频" }
+        return "正在播放 LRF 代理文件"
+    }
+
+    private func loadPlayer() {
+        player.pause()
+        guard let playbackURL else {
+            player.replaceCurrentItem(with: nil)
+            return
+        }
+        player.replaceCurrentItem(with: AVPlayerItem(url: playbackURL))
+    }
+}
+
+struct DonutChartView: View {
+    let items: [MediaItem]
+
+    private var slices: [(profile: ColorProfile, count: Int)] {
+        ColorProfile.allCases.compactMap { profile in
+            let count = items.filter { $0.result?.profile == profile }.count
+            return count > 0 ? (profile, count) : nil
+        }
+    }
+
+    private var total: Int {
+        slices.reduce(0) { $0 + $1.count }
+    }
+
+    var body: some View {
+        HStack(spacing: 12) {
+            ZStack {
+                Circle()
+                    .stroke(Color.white.opacity(0.08), lineWidth: 13)
+                ForEach(slices.indices, id: \.self) { index in
+                    Circle()
+                        .trim(from: start(at: index), to: end(at: index))
+                        .stroke(
+                            slices[index].profile.color,
+                            style: StrokeStyle(lineWidth: 13, lineCap: .butt)
+                        )
+                        .rotationEffect(.degrees(-90))
+                }
+                VStack(spacing: 0) {
+                    Text("\(total)")
+                        .font(.title3.bold().monospacedDigit())
+                    Text("素材")
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+                }
+            }
+            .frame(width: 94, height: 94)
+
+            VStack(alignment: .leading, spacing: 4) {
+                if slices.isEmpty {
+                    Text("等待分析")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                } else {
+                    ForEach(slices.indices, id: \.self) { index in
+                        let slice = slices[index]
+                        HStack(spacing: 5) {
+                            Circle().fill(slice.profile.color).frame(width: 7, height: 7)
+                            Text(slice.profile.rawValue)
+                                .font(.caption2)
+                                .lineLimit(1)
+                                .minimumScaleFactor(0.75)
+                            Spacer(minLength: 3)
+                            Text("\(slice.count) · \(percent(slice.count))")
+                                .font(.caption2.monospacedDigit())
+                                .foregroundStyle(.secondary)
+                        }
+                    }
+                }
+            }
+            .frame(maxWidth: .infinity)
+        }
+        .padding(10)
+        .background(Color.black.opacity(0.18), in: RoundedRectangle(cornerRadius: 8))
+    }
+
+    private func start(at index: Int) -> CGFloat {
+        guard total > 0 else { return 0 }
+        let previous = slices.prefix(index).reduce(0) { $0 + $1.count }
+        return CGFloat(previous) / CGFloat(total)
+    }
+
+    private func end(at index: Int) -> CGFloat {
+        guard total > 0 else { return 0 }
+        return CGFloat(slices.prefix(index + 1).reduce(0) { $0 + $1.count }) / CGFloat(total)
+    }
+
+    private func percent(_ count: Int) -> String {
+        guard total > 0 else { return "0%" }
+        return String(format: "%.0f%%", Double(count) / Double(total) * 100)
     }
 }
 
@@ -513,124 +652,161 @@ struct InspectorView: View {
 
     var body: some View {
         Panel {
-            VStack(alignment: .leading, spacing: 13) {
+            VStack(alignment: .leading, spacing: 9) {
                 HStack {
                     Text("分析与导出").font(.headline)
                     Spacer()
                     if model.readyCount < model.items.count { ProgressView().controlSize(.small) }
                 }
 
-                VStack(alignment: .leading, spacing: 8) {
-                    ForEach(ColorProfile.allCases.filter { profile in
-                        model.items.contains { $0.result?.profile == profile }
-                    }) { profile in
-                        HStack {
-                            Circle().fill(profile.color).frame(width: 8, height: 8)
-                            Text(profile.rawValue).font(.caption)
-                            Spacer()
-                            Text("\(model.items.filter { $0.result?.profile == profile }.count)")
-                                .font(.caption.bold().monospacedDigit())
-                        }
-                    }
-                    if model.items.isEmpty {
-                        Text("尚无分析结果").font(.caption).foregroundStyle(.secondary)
-                    }
-                }
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .padding(11)
-                .background(Color.black.opacity(0.18), in: RoundedRectangle(cornerRadius: 8))
+                DonutChartView(items: model.items)
 
                 if let selectedItem {
-                    VStack(alignment: .leading, spacing: 5) {
-                        Text("判定依据").font(.caption.bold()).foregroundStyle(.secondary)
+                    VStack(alignment: .leading, spacing: 3) {
+                        Text("当前素材判定")
+                            .font(.caption2.bold())
+                            .foregroundStyle(.secondary)
                         Text(selectedItem.error ?? selectedItem.result?.reason ?? "正在读取元数据…")
                             .font(.caption)
-                            .lineLimit(3)
+                            .lineLimit(2)
+                            .truncationMode(.tail)
                         if selectedItem.lrfURL != nil {
                             Label("已匹配 LRF", systemImage: "checkmark.circle.fill")
-                                .font(.caption)
+                                .font(.caption2)
                                 .foregroundStyle(Color.green)
                         }
                     }
+                    .frame(maxWidth: .infinity, alignment: .leading)
                 }
 
-                Divider().overlay(borderColor)
-
                 Button(action: model.chooseOutput) {
-                    HStack {
+                    HStack(spacing: 8) {
                         Image(systemName: "folder")
-                        VStack(alignment: .leading, spacing: 2) {
-                            Text("选择输出文件夹")
+                        VStack(alignment: .leading, spacing: 1) {
+                            Text("选择输出文件夹").lineLimit(1)
                             Text(model.outputURL?.path(percentEncoded: false) ?? "尚未选择")
                                 .font(.caption2)
                                 .foregroundStyle(.secondary)
                                 .lineLimit(1)
                                 .truncationMode(.middle)
                         }
-                        Spacer()
+                        Spacer(minLength: 0)
                     }
-                    .frame(maxWidth: .infinity, alignment: .leading)
                 }
                 .buttonStyle(.bordered)
 
-                Picker("操作方式", selection: $model.copyFiles) {
+                Picker("", selection: $model.copyFiles) {
                     Text("复制原片").tag(true)
                     Text("移动原片").tag(false)
                 }
+                .labelsHidden()
                 .pickerStyle(.segmented)
 
-                Toggle("同时导出匹配的 LRF", isOn: $model.includeLRF).font(.caption)
+                Toggle("同时导出匹配的 LRF", isOn: $model.includeLRF)
+                    .font(.caption)
+                    .lineLimit(1)
+
+                HStack(spacing: 7) {
+                    Button("全选") { model.selectAll() }
+                    Button("取消全选") { model.deselectAll() }
+                    Spacer()
+                    Text("\(model.selectedCount)/\(model.items.count)")
+                        .font(.caption.monospacedDigit())
+                        .foregroundStyle(.secondary)
+                }
+                .controlSize(.small)
+
                 Spacer(minLength: 0)
 
                 Button(action: model.sort) {
-                    Label("分类导出", systemImage: "square.and.arrow.up")
-                        .font(.system(size: 14, weight: .semibold))
+                    Label("导出已选 \(model.selectedCount) 个", systemImage: "square.and.arrow.up")
+                        .font(.system(size: 13, weight: .semibold))
+                        .lineLimit(1)
                         .frame(maxWidth: .infinity)
-                        .padding(.vertical, 5)
+                        .padding(.vertical, 4)
                 }
                 .buttonStyle(.borderedProminent)
                 .tint(Color(red: 0.02, green: 0.52, blue: 0.92))
                 .disabled(!model.canSort)
             }
-            .padding(14)
+            .padding(13)
         }
-        .frame(width: 260)
+        .frame(width: 282)
     }
 }
 
 struct ClipCard: View {
     let item: MediaItem
-    let selected: Bool
+    let active: Bool
+    let markedForExport: Bool
+    let activate: () -> Void
+    let toggleExport: () -> Void
 
     var body: some View {
-        ZStack(alignment: .bottom) {
-            RoundedRectangle(cornerRadius: 7).fill(Color.black.opacity(0.42))
-            if let image = item.thumbnail {
-                Image(nsImage: image).resizable().scaledToFill()
-            } else {
-                Image(systemName: item.isWorking ? "hourglass" : "film")
-                    .font(.title2)
-                    .foregroundStyle(.white.opacity(0.25))
+        GeometryReader { proxy in
+            ZStack(alignment: .bottom) {
+                Color.black.opacity(0.42)
+
+                if let image = item.thumbnail {
+                    Image(nsImage: image)
+                        .resizable()
+                        .scaledToFill()
+                        .frame(width: proxy.size.width, height: proxy.size.height)
+                        .clipped()
+                } else {
+                    Image(systemName: item.isWorking ? "hourglass" : "film")
+                        .font(.title2)
+                        .foregroundStyle(.white.opacity(0.25))
+                        .frame(width: proxy.size.width, height: proxy.size.height)
+                }
+
+                LinearGradient(
+                    colors: [.clear, .black.opacity(0.88)],
+                    startPoint: .center,
+                    endPoint: .bottom
+                )
+
+                HStack(spacing: 4) {
+                    Image(systemName: item.lrfURL == nil ? "film" : "photo.on.rectangle")
+                        .font(.caption2)
+                    Text(item.url.deletingPathExtension().lastPathComponent)
+                        .font(.caption2.weight(.semibold))
+                        .lineLimit(1)
+                        .truncationMode(.middle)
+                    Spacer(minLength: 2)
+                    Text(durationText(item.duration))
+                        .font(.caption2.monospacedDigit())
+                }
+                .foregroundStyle(.white)
+                .padding(6)
+
+                VStack {
+                    HStack {
+                        Spacer()
+                        Button(action: toggleExport) {
+                            Image(systemName: markedForExport ? "checkmark.circle.fill" : "circle")
+                                .font(.system(size: 17, weight: .semibold))
+                                .foregroundStyle(markedForExport ? Color.cyan : Color.white.opacity(0.75))
+                                .shadow(color: .black, radius: 2)
+                        }
+                        .buttonStyle(.plain)
+                        .help(markedForExport ? "从导出选择中移除" : "加入导出选择")
+                    }
+                    Spacer()
+                }
+                .padding(6)
             }
-            LinearGradient(colors: [.clear, .black.opacity(0.82)], startPoint: .top, endPoint: .bottom)
-            HStack(spacing: 5) {
-                Image(systemName: item.lrfURL == nil ? "film" : "photo.on.rectangle").font(.caption2)
-                Text(item.url.deletingPathExtension().lastPathComponent)
-                    .font(.caption2.weight(.medium))
-                    .lineLimit(1)
-                Spacer(minLength: 2)
-                Text(durationText(item.duration)).font(.caption2.monospacedDigit())
-            }
-            .foregroundStyle(.white.opacity(0.90))
-            .padding(7)
+            .frame(width: proxy.size.width, height: proxy.size.height)
+            .contentShape(Rectangle())
+            .onTapGesture(perform: activate)
         }
-        .frame(height: 88)
+        .frame(height: 94)
         .clipShape(RoundedRectangle(cornerRadius: 7))
         .overlay(
             RoundedRectangle(cornerRadius: 7)
-                .stroke(selected ? (item.result?.profile.color ?? .cyan) : borderColor, lineWidth: selected ? 2 : 1)
+                .stroke(active ? (item.result?.profile.color ?? .cyan) : borderColor, lineWidth: active ? 2 : 1)
         )
-        .contentShape(RoundedRectangle(cornerRadius: 7))
+        .opacity(markedForExport ? 1 : 0.58)
         .help(item.result?.metadata ?? "正在分析")
     }
 
@@ -644,37 +820,54 @@ struct ClipCard: View {
 struct ProfileGroupView: View {
     let profile: ColorProfile
     let items: [MediaItem]
-    @Binding var selectedID: UUID?
-    private let columns = [GridItem(.flexible(), spacing: 8), GridItem(.flexible(), spacing: 8)]
+    @Binding var activeID: UUID?
+    @ObservedObject var model: SorterModel
+
+    private let columns = [
+        GridItem(.fixed(122), spacing: 8),
+        GridItem(.fixed(122), spacing: 8)
+    ]
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            HStack {
-                Circle().fill(profile.color).frame(width: 10, height: 10)
-                Text(profile.rawValue).font(.subheadline.bold())
-                Spacer()
-                Text("\(items.count) 个").font(.caption.monospacedDigit()).foregroundStyle(.secondary)
+        VStack(alignment: .leading, spacing: 9) {
+            HStack(spacing: 7) {
+                Circle().fill(profile.color).frame(width: 9, height: 9)
+                Text(profile.rawValue)
+                    .font(.subheadline.bold())
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.8)
+                Spacer(minLength: 4)
+                Text("\(items.count)")
+                    .font(.caption.monospacedDigit())
+                    .foregroundStyle(.secondary)
             }
 
             if items.isEmpty {
-                VStack(spacing: 7) {
-                    Image(systemName: profile.symbol).foregroundStyle(profile.color.opacity(0.45))
-                    Text("暂无素材").font(.caption).foregroundStyle(.secondary)
+                VStack(spacing: 6) {
+                    Image(systemName: profile.symbol)
+                        .foregroundStyle(profile.color.opacity(0.48))
+                    Text("暂无素材")
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
                 }
-                .frame(maxWidth: .infinity, minHeight: 88)
+                .frame(width: 252, height: 94)
                 .background(Color.black.opacity(0.14), in: RoundedRectangle(cornerRadius: 7))
             } else {
-                LazyVGrid(columns: columns, spacing: 8) {
+                LazyVGrid(columns: columns, alignment: .leading, spacing: 8) {
                     ForEach(items) { item in
-                        ClipCard(item: item, selected: selectedID == item.id)
-                            .onTapGesture { selectedID = item.id }
+                        ClipCard(
+                            item: item,
+                            active: activeID == item.id,
+                            markedForExport: model.selectedForExport.contains(item.id),
+                            activate: { activeID = item.id },
+                            toggleExport: { model.toggleExportSelection(item.id) }
+                        )
                     }
                 }
             }
-            Spacer(minLength: 0)
         }
         .padding(10)
-        .frame(width: 286, alignment: .top)
+        .frame(width: 272, alignment: .topLeading)
         .background(cardBackground, in: RoundedRectangle(cornerRadius: 9))
         .overlay(alignment: .top) {
             RoundedRectangle(cornerRadius: 9).fill(profile.color).frame(height: 3)
@@ -685,64 +878,76 @@ struct ProfileGroupView: View {
 
 struct ContentView: View {
     @StateObject private var model = SorterModel()
-    @State private var selectedID: UUID?
+    @State private var activeID: UUID?
 
-    private var selectedItem: MediaItem? {
-        model.items.first { $0.id == selectedID } ?? model.items.first
+    private var activeItem: MediaItem? {
+        model.items.first { $0.id == activeID } ?? model.items.first
     }
 
     var body: some View {
-        VStack(spacing: 10) {
-            HStack {
+        VStack(spacing: 9) {
+            HStack(spacing: 10) {
                 Text("POCKET LOG SORTER")
                     .font(.caption.weight(.semibold))
                     .foregroundStyle(.secondary)
                 Spacer()
                 Text(model.status)
                     .font(.caption)
+                    .lineLimit(1)
+                    .truncationMode(.middle)
                     .foregroundStyle(model.status.hasPrefix("完成") ? Color.green : Color.secondary)
                 Spacer()
                 Text("DJI COLOR WORKSPACE")
                     .font(.caption2.monospaced())
                     .foregroundStyle(.secondary)
             }
-            .padding(.horizontal, 6)
+            .padding(.horizontal, 5)
 
             HStack(alignment: .top, spacing: 10) {
                 SidebarView(model: model)
-                PreviewView(item: selectedItem).frame(maxWidth: .infinity)
-                InspectorView(model: model, selectedItem: selectedItem)
+                VideoPreviewView(item: activeItem)
+                    .frame(maxWidth: .infinity)
+                InspectorView(model: model, selectedItem: activeItem)
             }
-            .frame(height: 400)
+            .frame(height: 426)
 
-            HStack {
+            HStack(spacing: 10) {
                 Text("按色彩格式分组").font(.headline)
-                Text("点击缩略图可查看判定依据").font(.caption).foregroundStyle(.secondary)
+                Text("点击卡片预览 · 勾选后按需导出")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
                 Spacer()
-                Text("\(model.items.count) CLIPS").font(.caption.monospaced()).foregroundStyle(.secondary)
+                Text("已选 \(model.selectedCount)/\(model.items.count)")
+                    .font(.caption.monospacedDigit())
+                    .foregroundStyle(.secondary)
+                Button("全选", action: model.selectAll).controlSize(.small)
+                Button("取消全选", action: model.deselectAll).controlSize(.small)
             }
             .padding(.horizontal, 4)
 
-            ScrollView(.horizontal) {
+            ScrollView([.horizontal, .vertical]) {
                 HStack(alignment: .top, spacing: 10) {
                     ForEach(ColorProfile.allCases) { profile in
                         ProfileGroupView(
                             profile: profile,
                             items: model.items.filter { ($0.result?.profile ?? .unknown) == profile },
-                            selectedID: $selectedID
+                            activeID: $activeID,
+                            model: model
                         )
                     }
                 }
                 .padding(.bottom, 8)
             }
             .scrollIndicators(.visible)
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
         .padding(10)
-        .frame(width: 1320, height: 780)
+        .frame(width: 1320, height: 800)
         .background(appBackground)
         .preferredColorScheme(.dark)
         .onChange(of: model.items.count) { _ in
-            if selectedID == nil { selectedID = model.items.first?.id }
+            if activeID == nil { activeID = model.items.first?.id }
         }
     }
 }
@@ -754,7 +959,7 @@ struct PocketColorSorterApp: App {
     var body: some Scene {
         WindowGroup { ContentView() }
             .windowStyle(.hiddenTitleBar)
-            .defaultSize(width: 1320, height: 780)
+            .defaultSize(width: 1320, height: 800)
             .windowResizability(.contentSize)
         Settings { EmptyView() }
     }

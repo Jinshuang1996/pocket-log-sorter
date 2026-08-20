@@ -2,6 +2,21 @@
 
 All notable changes to Pocket Log Sorter are documented here.
 
+## 2.2.0 - 2026-08-20
+
+### Added
+
+- Built-in AVKit video player with LRF/original-source switching.
+- Donut chart showing the count and percentage of every detected color profile.
+- Per-clip export checkboxes, select all, deselect all and selected-only export.
+- Two-direction scrolling confined to the lower profile-group workspace.
+
+### Fixed
+
+- Thumbnail cards now use strict geometry bounds and no longer overlap.
+- Long filenames, profile labels, status text and output paths are truncated safely.
+- The import, preview, analysis and export controls remain fixed while browsing large batches.
+
 ## 2.1.0 - 2026-08-20
 
 ### Added
