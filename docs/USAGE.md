@@ -13,8 +13,8 @@
 ### 从源码构建
 
 ```bash
-./test.sh
-./build.sh
+zsh ./test.sh
+zsh ./build.sh
 ```
 
 应用生成到 `dist/Pocket色彩分拣器.app`。

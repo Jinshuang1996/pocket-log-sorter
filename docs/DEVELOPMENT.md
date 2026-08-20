@@ -41,7 +41,7 @@ xcode-select --install
 
 ```bash
 chmod +x test.sh build.sh build_dmg.sh
-./test.sh
+zsh ./test.sh
 ```
 
 `test.sh` 将测试程序编译到系统临时目录，退出时自动删除，不污染仓库。
@@ -49,7 +49,7 @@ chmod +x test.sh build.sh build_dmg.sh
 ## 构建应用
 
 ```bash
-./build.sh
+zsh ./build.sh
 ```
 
 构建过程：
@@ -65,13 +65,13 @@ chmod +x test.sh build.sh build_dmg.sh
 可临时覆盖输出目录：
 
 ```bash
-POCKET_SORTER_OUTPUT_DIR=/absolute/output/path ./build.sh
+POCKET_SORTER_OUTPUT_DIR=/absolute/output/path zsh ./build.sh
 ```
 
 ## 构建 DMG
 
 ```bash
-./build_dmg.sh
+zsh ./build_dmg.sh
 ```
 
 脚本会重新构建应用，然后创建：
@@ -85,7 +85,7 @@ DMG 包含应用、“应用程序”符号链接和中文安装说明。
 ## 手动验证
 
 ```bash
-./test.sh
+zsh ./test.sh
 codesign --verify --deep --strict --verbose=2 "dist/Pocket色彩分拣器.app"
 file "dist/Pocket色彩分拣器.app/Contents/MacOS/PocketColorSorter"
 hdiutil verify "dist/Pocket色彩分拣器-通用版.dmg"
@@ -108,7 +108,7 @@ hdiutil verify "dist/Pocket色彩分拣器-通用版.dmg"
 
 1. 更新 `CFBundleShortVersionString` 与 `CFBundleVersion`。
 2. 更新 `CHANGELOG.md`。
-3. 运行 `./test.sh`。
+3. 运行 `zsh ./test.sh`。
 4. 构建并验证 `.app` 与 DMG。
 5. 在真实 Apple Silicon Mac 上测试文件选择、拖拽、复制和移动。
 6. 如果声称支持 Intel，至少在 Intel runner 或真机启动验证。
