@@ -31,7 +31,7 @@
 
 ## 快速使用
 
-1. 从 [Releases](https://github.com/Jinshuang1996/pocket-log-sorter/releases) 下载 DMG，或在本地运行 `./build_dmg.sh`。
+1. 从 [Releases](https://github.com/Jinshuang1996/pocket-log-sorter/releases) 下载 DMG，或在本地运行 `zsh ./build_dmg.sh`。
 2. 打开 DMG，将应用拖入“应用程序”。
 3. 启动应用，点击左侧“点击导入”，也可以直接拖入素材。
 4. 在底部按格式浏览缩略图；点击卡片即可在上方播放，并查看真实判定依据。
@@ -65,9 +65,9 @@ DJI 素材目录中若存在 `DJI_0001.MP4` 与 `DJI_0001.LRF`，程序会自动
 ```bash
 git clone https://github.com/Jinshuang1996/pocket-log-sorter.git
 cd pocket-log-sorter
-./test.sh
-./build.sh
-./build_dmg.sh
+zsh ./test.sh
+zsh ./build.sh
+zsh ./build_dmg.sh
 ```
 
 生成文件位于 `dist/`：
