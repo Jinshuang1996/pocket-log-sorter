@@ -155,8 +155,8 @@ struct ThumbnailPayload {
 }
 
 enum ThumbnailLoader {
-    static func load(for videoURL: URL) -> ThumbnailPayload {
-        let lrf = companionLRF(for: videoURL)
+    static func load(for videoURL: URL, preferredLRF: URL? = nil) -> ThumbnailPayload {
+        let lrf = preferredLRF ?? companionLRF(for: videoURL)
         if let lrf, let preview = render(url: lrf) {
             return ThumbnailPayload(image: preview.image, lrfURL: lrf, duration: preview.duration)
         }
@@ -198,10 +198,11 @@ enum ThumbnailLoader {
 final class SorterModel: ObservableObject {
     @Published var items: [MediaItem] = []
     @Published var outputURL: URL?
-    @Published var copyFiles = true
+    @Published var copyFiles = false
     @Published var includeLRF = true
     @Published var selectedForExport: Set<UUID> = []
     @Published var status = "拖入视频或点击导入"
+    private var importedLRFs: [URL] = []
 
     var readyCount: Int { items.filter { !$0.isWorking }.count }
     var canSort: Bool { !selectedForExport.isEmpty && items.allSatisfy { !$0.isWorking } && outputURL != nil }
@@ -211,10 +212,27 @@ final class SorterModel: ObservableObject {
 
     func add(urls: [URL]) {
         let expanded = expand(urls: urls)
+        register(lrfs: expanded.lrfs)
+
+        var newlyAttached = 0
+        for index in items.indices {
+            guard let lrf = preferredLRF(for: items[index].url),
+                  items[index].lrfURL?.standardizedFileURL != lrf.standardizedFileURL else { continue }
+            let itemID = items[index].id
+            let videoURL = items[index].url
+            items[index].lrfURL = lrf
+            newlyAttached += 1
+            refreshPreview(itemID: itemID, videoURL: videoURL, lrfURL: lrf)
+        }
+
         let existing = Set(items.map { $0.url.standardizedFileURL.path })
-        let fresh = expanded.filter { !existing.contains($0.standardizedFileURL.path) }
+        let fresh = expanded.videos.filter { !existing.contains($0.standardizedFileURL.path) }
         guard !fresh.isEmpty else {
-            status = expanded.isEmpty ? "没有找到支持的 MP4、MOV 或 M4V 文件" : "这些视频已在项目中"
+            if !expanded.lrfs.isEmpty {
+                status = "已导入 \(expanded.lrfs.count) 个 LRF，匹配 \(newlyAttached) 个视频；LRF 不会显示在下方"
+            } else {
+                status = expanded.videos.isEmpty ? "没有找到视频或 LRF 文件" : "这些视频已在项目中"
+            }
             return
         }
         let newItems = fresh.map { MediaItem(url: $0) }
@@ -223,10 +241,11 @@ final class SorterModel: ObservableObject {
         status = "正在分析 \(fresh.count) 个视频…"
 
         for item in newItems {
+            let preferredLRF = preferredLRF(for: item.url)
             Task {
                 let payload = await Task.detached(priority: .userInitiated) {
                     let result = await Detector.inspect(url: item.url)
-                    let thumbnail = ThumbnailLoader.load(for: item.url)
+                    let thumbnail = ThumbnailLoader.load(for: item.url, preferredLRF: preferredLRF)
                     return (result, thumbnail)
                 }.value
                 if let index = items.firstIndex(where: { $0.id == item.id }) {
@@ -248,28 +267,75 @@ final class SorterModel: ObservableObject {
         panel.canChooseFiles = true
         panel.canChooseDirectories = true
         panel.allowsMultipleSelection = true
-        panel.allowedContentTypes = [.movie, .mpeg4Movie, .quickTimeMovie, .folder]
+        var types: [UTType] = [.movie, .mpeg4Movie, .quickTimeMovie, .folder]
+        if let lrfType = UTType("com.pocketlogsorter.dji-lrf") { types.append(lrfType) }
+        panel.allowedContentTypes = types
         panel.prompt = "导入素材"
-        panel.message = "选择视频或整个 DJI 素材文件夹；同名 LRF 会自动用于缩略图"
+        panel.message = "选择视频、LRF 或整个 DJI 素材文件夹；LRF 只用于播放与缩略图，不会显示为素材"
         if panel.runModal() == .OK { add(urls: panel.urls) }
     }
 
-    private func expand(urls: [URL]) -> [URL] {
-        var result: [URL] = []
+    private func expand(urls: [URL]) -> (videos: [URL], lrfs: [URL]) {
+        var videos: [URL] = []
+        var lrfs: [URL] = []
         let fm = FileManager.default
         for url in urls {
             var isDir: ObjCBool = false
             if fm.fileExists(atPath: url.path, isDirectory: &isDir), isDir.boolValue {
                 if let enumerator = fm.enumerator(at: url, includingPropertiesForKeys: [.isRegularFileKey], options: [.skipsHiddenFiles]) {
-                    for case let child as URL in enumerator where Detector.supportedExtensions.contains(child.pathExtension.lowercased()) {
-                        result.append(child)
+                    for case let child as URL in enumerator {
+                        let ext = child.pathExtension.lowercased()
+                        if Detector.supportedExtensions.contains(ext) { videos.append(child) }
+                        else if ext == "lrf" { lrfs.append(child) }
                     }
                 }
             } else if Detector.supportedExtensions.contains(url.pathExtension.lowercased()) {
-                result.append(url)
+                videos.append(url)
+            } else if url.pathExtension.lowercased() == "lrf" {
+                lrfs.append(url)
             }
         }
-        return result.sorted { $0.lastPathComponent.localizedStandardCompare($1.lastPathComponent) == .orderedAscending }
+        return (
+            videos.sorted { $0.lastPathComponent.localizedStandardCompare($1.lastPathComponent) == .orderedAscending },
+            lrfs.sorted { $0.lastPathComponent.localizedStandardCompare($1.lastPathComponent) == .orderedAscending }
+        )
+    }
+
+    private func register(lrfs: [URL]) {
+        var known = Set(importedLRFs.map { $0.standardizedFileURL.path })
+        for lrf in lrfs where known.insert(lrf.standardizedFileURL.path).inserted {
+            importedLRFs.append(lrf)
+        }
+    }
+
+    private func preferredLRF(for videoURL: URL) -> URL? {
+        let exactKey = pairKey(for: videoURL)
+        if let exact = importedLRFs.first(where: { pairKey(for: $0) == exactKey }) { return exact }
+
+        let stem = videoURL.deletingPathExtension().lastPathComponent.lowercased()
+        let sameStem = importedLRFs.filter {
+            $0.deletingPathExtension().lastPathComponent.lowercased() == stem
+        }
+        if sameStem.count == 1 { return sameStem[0] }
+        return ThumbnailLoader.companionLRF(for: videoURL)
+    }
+
+    private func pairKey(for url: URL) -> String {
+        let folder = url.deletingLastPathComponent().standardizedFileURL.path.lowercased()
+        let stem = url.deletingPathExtension().lastPathComponent.lowercased()
+        return folder + "/" + stem
+    }
+
+    private func refreshPreview(itemID: UUID, videoURL: URL, lrfURL: URL) {
+        Task {
+            let preview = await Task.detached(priority: .userInitiated) {
+                ThumbnailLoader.load(for: videoURL, preferredLRF: lrfURL)
+            }.value
+            guard let index = items.firstIndex(where: { $0.id == itemID }) else { return }
+            items[index].thumbnail = preview.image
+            items[index].lrfURL = preview.lrfURL
+            items[index].duration = preview.duration
+        }
     }
 
     func chooseOutput() {
@@ -326,6 +392,7 @@ final class SorterModel: ObservableObject {
     func clear() {
         items.removeAll()
         selectedForExport.removeAll()
+        importedLRFs.removeAll()
         status = "拖入视频或点击导入"
     }
 
@@ -388,7 +455,7 @@ struct ImportDropZone: View {
                 .font(.system(size: 34, weight: .light))
                 .foregroundStyle(targeted ? Color.cyan : Color.white.opacity(0.44))
             VStack(spacing: 4) {
-                Text("拖放视频或素材文件夹")
+                Text("拖放视频、LRF 或素材文件夹")
                     .font(.system(size: 13, weight: .semibold))
                 Text("自动匹配同名 LRF 缩略文件")
                     .font(.caption)
@@ -545,6 +612,9 @@ struct VideoPreviewView: View {
             loadPlayer()
         }
         .onChange(of: playOriginal) { _ in loadPlayer() }
+        .onReceive(NotificationCenter.default.publisher(for: .AVPlayerItemFailedToPlayToEndTime)) { _ in
+            if !playOriginal && item?.lrfURL != nil { playOriginal = true }
+        }
         .onDisappear { player.pause() }
     }
 
@@ -560,6 +630,14 @@ struct VideoPreviewView: View {
             return
         }
         player.replaceCurrentItem(with: AVPlayerItem(url: playbackURL))
+        if !playOriginal && item?.lrfURL != nil {
+            let candidate = playbackURL
+            Task {
+                let asset = AVURLAsset(url: candidate)
+                let playable = (try? await asset.load(.isPlayable)) ?? false
+                if !playable && self.playbackURL == candidate { playOriginal = true }
+            }
+        }
     }
 }
 

@@ -8,10 +8,27 @@
     <key>CFBundleDisplayName</key><string>Pocket 色彩分拣器</string>
     <key>CFBundleIconFile</key><string>AppIcon</string>
     <key>CFBundlePackageType</key><string>APPL</string>
-    <key>CFBundleShortVersionString</key><string>2.2</string>
-    <key>CFBundleVersion</key><string>4</string>
+    <key>CFBundleShortVersionString</key><string>2.3</string>
+    <key>CFBundleVersion</key><string>5</string>
     <key>LSMinimumSystemVersion</key><string>13.0</string>
     <key>NSHighResolutionCapable</key><true/>
     <key>LSApplicationCategoryType</key><string>public.app-category.video</string>
+    <key>UTExportedTypeDeclarations</key>
+    <array>
+        <dict>
+            <key>UTTypeIdentifier</key><string>com.pocketlogsorter.dji-lrf</string>
+            <key>UTTypeDescription</key><string>DJI Low Resolution Video Proxy</string>
+            <key>UTTypeConformsTo</key>
+            <array>
+                <string>public.movie</string>
+                <string>public.data</string>
+            </array>
+            <key>UTTypeTagSpecification</key>
+            <dict>
+                <key>public.filename-extension</key>
+                <array><string>lrf</string><string>LRF</string></array>
+            </dict>
+        </dict>
+    </array>
 </dict>
 </plist>

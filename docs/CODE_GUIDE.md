@@ -116,6 +116,10 @@ ColorGammaSxS == nil && record_mode == 8 // 普通 Rec.709
 
 找到 LRF 后，`AVAssetImageGenerator` 在大约 8% 时长、最多第 1 秒处抽取一帧，输出尺寸限制为 720×405。LRF 解码失败时重新对原视频执行同一流程。此过程不改变 `Detector.inspect` 的输入；色彩模式始终从原视频读取。
 
+文件选择器通过应用声明的 `com.pocketlogsorter.dji-lrf` UTI 接受 `.lrf` 扩展名。目录展开同时收集视频和 LRF，但只有视频会创建 `MediaItem`。显式导入的代理保存在 `importedLRFs` 中：优先按“目录 + 主体文件名”匹配；只有一个同名候选时允许跨目录匹配，避免同名 DJI 文件错误关联。
+
+`VideoPreviewView` 默认创建 LRF 对应的 `AVPlayerItem`，并异步加载 `AVAsset.isPlayable`。代理不可播放或收到播放失败通知时，`playOriginal` 自动切换为 `true`，播放器重新载入原视频。
+
 ## 6. 并发与 UI 状态
 
 `SorterModel` 标记为 `@MainActor`，所有 SwiftUI 状态更新都发生在主 actor。每个视频的磁盘和元数据读取通过 `Task.detached` 执行，避免大型批次冻结界面。

@@ -2,6 +2,19 @@
 
 All notable changes to Pocket Log Sorter are documented here.
 
+## 2.3.0 - 2026-08-20
+
+### Fixed
+
+- `.LRF` files can now be selected directly, dragged into the app or discovered while importing folders.
+- Imported LRF proxies are paired with same-name videos but never shown as independent clip cards.
+- The player checks whether an LRF is playable and automatically falls back to the source video when needed.
+
+### Changed
+
+- Moving source files is now the default export mode.
+- LRF files imported before their matching videos are cached and attached when the videos arrive.
+
 ## 2.2.0 - 2026-08-20
 
 ### Added
