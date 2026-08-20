@@ -1,0 +1,157 @@
+# 代码与架构说明
+
+本文面向希望理解识别原理、审查安全性或扩展新 DJI 机型的开发者。
+
+## 1. 总体流程
+
+```mermaid
+flowchart LR
+    A["拖拽或文件选择器"] --> B["展开目录并过滤视频"]
+    B --> C["读取 DJI djmd 第一包"]
+    C --> D{"ColorGammaSxS / record_mode"}
+    D -->|"22"| E["D-Log 2"]
+    D -->|"2"| F["D-Log"]
+    D -->|"nil + mode 8"| G["普通 Rec.709"]
+    D -->|"未知或无 djmd"| H["AVFoundation 标准元数据回退"]
+    H --> I["D-Log M / HLG / HDR / 待确认"]
+    E --> J["复制或移动到分类目录"]
+    F --> J
+    G --> J
+    I --> J
+```
+
+应用不分析画面像素，也不解码整段视频。识别主要依赖相机写入的拍摄元数据，因此速度接近读取文件头和少量表格的速度。
+
+## 2. 源码文件
+
+| 文件 | 职责 |
+|---|---|
+| `PocketColorSorter.swift` | SwiftUI 界面、文件选择/拖拽、任务状态、标准色彩元数据回退和文件整理 |
+| `DjiMetadataReader.swift` | ISO BMFF box 解析、定位 `djmd` sample、未知 schema protobuf 解析 |
+| `DjiMetadataReaderTests.swift` | 用最小合成 MP4 验证 D-Log 2、D-Log、普通模式字段路径 |
+| `Info.plist` | Bundle ID、版本、最低系统、应用图标配置 |
+| `build.sh` | 生成双架构 Universal Binary、`.icns`、签名后的 `.app` |
+| `build_dmg.sh` | 生成带“应用程序”快捷方式和安装说明的压缩 DMG |
+| `test.sh` | 编译并运行元数据读取测试 |
+
+## 3. `djmd` 读取器
+
+### 3.1 ISO BMFF box 遍历
+
+`DjiMetadataReader` 只实现定位第一条 DJI 元数据 sample 所需的 MP4/MOV 子集。它从顶层查找 `moov`，随后遍历每个：
+
+```text
+moov/trak/mdia/minf/stbl
+```
+
+读取的 sample table box：
+
+- `stsd`：判断 sample entry type 是否包含 `djmd`。
+- `stsz` / `stz2`：取得第一条 sample 的大小。
+- `stsc`：取得第一条 chunk 与每 chunk sample 数。
+- `stco` / `co64`：取得第一条 chunk 的文件偏移。
+
+box size 同时支持 32 位 size、64 位 large size 和延伸到父 box 末尾的 size 0。每次读取都会检查边界，避免损坏文件导致越界。
+
+发现顶层 `moof` 时，读取器返回不支持 fragmented MP4 的错误。上层把错误降级为标准元数据回退或“待确认”，不会中断其他文件。
+
+### 3.2 无 schema protobuf 解析
+
+DJI `djmd` sample 使用嵌套 protobuf。项目没有依赖 `.proto` 文件，而是保留字段号、wire type 和值的轻量递归解析器。
+
+支持的 wire type：
+
+- `0`：varint
+- `1`：64 位数据
+- `2`：length-delimited 嵌套消息
+- `5`：32 位数据
+
+最大递归深度为 8。遇到非法 varint、越界长度或未知 group wire type 时保守停止解析。
+
+### 3.3 当前字段路径
+
+```text
+ColorGammaSxS: top.field(2)[0].field(2)[0].field(3)[0].field(1)
+record_mode:   top.field(2)[0].field(3)[0].field(5)
+```
+
+映射：
+
+```swift
+ColorGammaSxS == 22  // D-Log 2
+ColorGammaSxS == 2   // D-Log
+ColorGammaSxS == nil && record_mode == 8 // 普通 Rec.709
+```
+
+该字段路径参考 MIT 许可项目 `dlog_color_classifier`；许可文本保留在 `THIRD_PARTY_NOTICES.txt`。
+
+## 4. 标准元数据回退
+
+`Detector.inspect` 优先调用 `DjiMetadataReader`。无法获得已知映射时，使用 AVFoundation 枚举：
+
+- Asset metadata formats、identifier、key space、key、value。
+- 视频 track 的 `CMFormatDescription` extensions。
+
+归一化成小写文本后按优先级判断：
+
+1. D-Log 2
+2. D-Log M
+3. D-Log
+4. Rec.2100 HLG / ARIB STD-B67
+5. SMPTE ST 2084 / Dolby Vision / PQ
+6. BT.2020
+7. DJI 明确标记 Rec.709
+8. 待确认
+
+仅有 BT.709 时不归入普通模式，这是有意的安全策略。
+
+## 5. 并发与 UI 状态
+
+`SorterModel` 标记为 `@MainActor`，所有 SwiftUI 状态更新都发生在主 actor。每个视频的磁盘和元数据读取通过 `Task.detached` 执行，避免大型批次冻结界面。
+
+每个 `MediaItem` 独立保存：
+
+- 源 URL
+- 分析状态
+- `DetectionResult`
+- 文件操作错误
+
+## 6. 文件整理安全策略
+
+应用支持复制和移动：
+
+- 使用 `FileManager.createDirectory` 按需创建目标目录。
+- `uniqueDestination` 在冲突时追加 `_2`、`_3`，不会覆盖。
+- 单个文件失败只记录到该行，不阻止后续文件。
+- 未知模式使用独立目录，避免错误 LUT 污染工作流。
+
+## 7. 测试设计
+
+测试不包含真实用户视频。`DjiMetadataReaderTests.swift` 在运行时构造最小 MP4：
+
+```text
+ftyp + mdat(djmd protobuf) + moov/trak/mdia/minf/stbl
+```
+
+测试矩阵：
+
+| 输入 | 期望 |
+|---|---|
+| `ColorGammaSxS = 22` | D-Log 2 |
+| `ColorGammaSxS = 2` | D-Log |
+| `record_mode = 8`，无 gamma | 普通 Rec.709 |
+
+增加新映射时应先添加失败测试，再扩展分类规则。
+
+## 8. 扩展建议
+
+### 添加新的枚举值
+
+1. 确认它来自未转码的原始素材。
+2. 用至少两台设备或多个样本交叉验证。
+3. 添加匿名化合成 fixture。
+4. 更新 `Detector.inspect`、README 分类表和 Changelog。
+
+### 支持 fragmented MP4
+
+需要解析 `moof/traf/tfhd/trun` 以计算 fragment sample offset。实现时必须覆盖 base-data-offset、default sample size 和多 fragment 情况，不应仅扫描字节字符串。

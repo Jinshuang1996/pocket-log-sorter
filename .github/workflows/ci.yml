@@ -1,0 +1,19 @@
+name: macOS CI
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  test-and-build:
+    runs-on: macos-14
+    steps:
+      - uses: actions/checkout@v4
+      - name: Run metadata tests
+        run: ./test.sh
+      - name: Build universal app
+        run: ./build.sh
+      - name: Verify bundle signature
+        run: codesign --verify --deep --strict --verbose=2 "dist/Pocket色彩分拣器.app"
+      - name: Verify architectures
+        run: lipo -archs "dist/Pocket色彩分拣器.app/Contents/MacOS/PocketColorSorter"
