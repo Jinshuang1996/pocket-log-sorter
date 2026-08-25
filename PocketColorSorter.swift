@@ -1004,21 +1004,27 @@ struct ProfileGroupView: View {
                 .frame(width: 252, height: 94)
                 .background(Color.black.opacity(0.14), in: RoundedRectangle(cornerRadius: 7))
             } else {
-                LazyVGrid(columns: columns, alignment: .leading, spacing: 8) {
-                    ForEach(items) { item in
-                        ClipCard(
-                            item: item,
-                            active: activeID == item.id,
-                            markedForExport: model.selectedForExport.contains(item.id),
-                            activate: { activeID = item.id },
-                            toggleExport: { model.toggleExportSelection(item.id) }
-                        )
+                ScrollView(.vertical) {
+                    LazyVGrid(columns: columns, alignment: .leading, spacing: 8) {
+                        ForEach(items) { item in
+                            ClipCard(
+                                item: item,
+                                active: activeID == item.id,
+                                markedForExport: model.selectedForExport.contains(item.id),
+                                activate: { activeID = item.id },
+                                toggleExport: { model.toggleExportSelection(item.id) }
+                            )
+                        }
                     }
+                    .padding(.trailing, 2)
+                    .padding(.bottom, 2)
                 }
+                .scrollIndicators(.visible)
             }
         }
         .padding(10)
-        .frame(width: 272, alignment: .topLeading)
+        .frame(width: 272)
+        .frame(maxHeight: .infinity, alignment: .topLeading)
         .background(cardBackground, in: RoundedRectangle(cornerRadius: 9))
         .overlay(alignment: .top) {
             RoundedRectangle(cornerRadius: 9).fill(profile.color).frame(height: 3)
@@ -1033,6 +1039,15 @@ struct ContentView: View {
 
     private var activeItem: MediaItem? {
         model.items.first { $0.id == activeID } ?? model.items.first
+    }
+
+    private var visibleProfiles: [ColorProfile] {
+        guard !model.items.isEmpty, model.readyCount == model.items.count else {
+            return ColorProfile.allCases
+        }
+        return ColorProfile.allCases.filter { profile in
+            model.items.contains { ($0.result?.profile ?? .unknown) == profile }
+        }
     }
 
     var body: some View {
@@ -1064,7 +1079,7 @@ struct ContentView: View {
 
             HStack(spacing: 10) {
                 Text("按素材格式分组").font(.headline)
-                Text("点击卡片预览 · 勾选后按需导出")
+                Text("点击卡片预览 · 每个分组可独立上下滚动")
                     .font(.caption)
                     .foregroundStyle(.secondary)
                     .lineLimit(1)
@@ -1077,20 +1092,23 @@ struct ContentView: View {
             }
             .padding(.horizontal, 4)
 
-            ScrollView([.horizontal, .vertical]) {
-                HStack(alignment: .top, spacing: 10) {
-                    ForEach(ColorProfile.allCases) { profile in
-                        ProfileGroupView(
-                            profile: profile,
-                            items: model.items.filter { ($0.result?.profile ?? .unknown) == profile },
-                            activeID: $activeID,
-                            model: model
-                        )
+            GeometryReader { proxy in
+                ScrollView(.horizontal) {
+                    HStack(alignment: .top, spacing: 10) {
+                        ForEach(visibleProfiles) { profile in
+                            ProfileGroupView(
+                                profile: profile,
+                                items: model.items.filter { ($0.result?.profile ?? .unknown) == profile },
+                                activeID: $activeID,
+                                model: model
+                            )
+                            .frame(height: max(160, proxy.size.height - 4))
+                        }
                     }
+                    .padding(.bottom, 4)
                 }
-                .padding(.bottom, 8)
+                .scrollIndicators(.visible)
             }
-            .scrollIndicators(.visible)
             .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
         .padding(10)

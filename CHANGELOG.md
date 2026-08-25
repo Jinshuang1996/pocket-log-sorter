@@ -2,6 +2,18 @@
 
 All notable changes to Pocket Log Sorter are documented here.
 
+## 2.5.0 - 2026-08-25
+
+### Changed
+
+- Each populated format column now owns its vertical scroll area, so a large group no longer stretches every other column.
+- The lower workspace scrolls horizontally between formats while the upper preview and controls remain fixed.
+- Empty format columns are hidden after analysis completes, reducing unnecessary horizontal space.
+
+### Fixed
+
+- Removed the long blank area shown below short or empty groups when another format contained many files.
+
 ## 2.4.0 - 2026-08-25
 
 ### Added

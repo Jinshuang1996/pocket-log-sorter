@@ -144,7 +144,7 @@ ColorGammaSxS == nil && record_mode == 8 // 普通 Rec.709
 
 `selectedForExport` 使用 `Set<UUID>` 保存多选状态。活动预览素材和导出选择互相独立：点击卡片只改变 `activeID`，点击卡片勾选框才改变导出集合。`sort()` 在处理每个条目前先检查该集合，因此未选择的素材不会发生文件操作。
 
-上半区使用固定布局，`VideoPlayer`、环形占比图和导出控件不会跟随素材列表移动。下半区使用同时支持水平与垂直方向的 `ScrollView`；格式列和大量缩略图只在该区域内滚动。
+上半区使用固定布局，`VideoPlayer`、环形占比图和导出控件不会跟随素材列表移动。下半区的外层 `ScrollView(.horizontal)` 只负责格式切换，每个 `ProfileGroupView` 内部拥有独立的 `ScrollView(.vertical)`。`GeometryReader` 将所有格式列约束到同一可视高度，因此最大分组不会撑高其他列。分析完成后，`visibleProfiles` 过滤数量为零的格式。
 
 `DonutChartView` 根据每个 `ColorProfile` 的实际数量计算累计区间，用多个旋转后的 `Circle.trim` 绘制环形分段，不依赖第三方图表库。
 
