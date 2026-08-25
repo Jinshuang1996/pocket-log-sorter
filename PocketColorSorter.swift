@@ -597,6 +597,71 @@ struct SidebarView: View {
     }
 }
 
+struct ZoomableImagePreview: View {
+    let image: NSImage
+    @State private var baseZoom: CGFloat = 1
+    @GestureState private var gestureZoom: CGFloat = 1
+
+    private var zoom: CGFloat {
+        min(6, max(0.25, baseZoom * gestureZoom))
+    }
+
+    var body: some View {
+        GeometryReader { proxy in
+            ScrollView([.horizontal, .vertical]) {
+                Image(nsImage: image)
+                    .resizable()
+                    .scaledToFit()
+                    .frame(
+                        width: max(1, proxy.size.width - 16) * zoom,
+                        height: max(1, proxy.size.height - 16) * zoom
+                    )
+                    .frame(minWidth: proxy.size.width, minHeight: proxy.size.height)
+                    .contentShape(Rectangle())
+                    .onTapGesture(count: 2) {
+                        baseZoom = baseZoom > 1.01 ? 1 : 2
+                    }
+            }
+            .scrollIndicators(.visible)
+            .simultaneousGesture(
+                MagnificationGesture()
+                    .updating($gestureZoom) { value, state, _ in state = value }
+                    .onEnded { value in
+                        baseZoom = min(6, max(0.25, baseZoom * value))
+                    }
+            )
+            .overlay(alignment: .topTrailing) {
+                HStack(spacing: 5) {
+                    Button { baseZoom = max(0.25, baseZoom / 1.25) } label: {
+                        Image(systemName: "minus.magnifyingglass")
+                    }
+                    .disabled(zoom <= 0.25)
+
+                    Text("\(Int((zoom * 100).rounded()))%")
+                        .font(.caption2.monospacedDigit())
+                        .frame(width: 42)
+
+                    Button { baseZoom = min(6, baseZoom * 1.25) } label: {
+                        Image(systemName: "plus.magnifyingglass")
+                    }
+                    .disabled(zoom >= 6)
+
+                    Button { baseZoom = 1 } label: {
+                        Image(systemName: "arrow.down.right.and.arrow.up.left")
+                    }
+                    .help("适合窗口")
+                }
+                .buttonStyle(.borderless)
+                .padding(.horizontal, 9)
+                .padding(.vertical, 6)
+                .background(.ultraThinMaterial, in: Capsule())
+                .padding(10)
+            }
+        }
+        .background(Color.black)
+    }
+}
+
 struct VideoPreviewView: View {
     let item: MediaItem?
     @State private var player = AVPlayer()
@@ -623,10 +688,8 @@ struct VideoPreviewView: View {
                         }
                     } else if let item, item.isStillImage {
                         if let image = item.thumbnail {
-                            Image(nsImage: image)
-                                .resizable()
-                                .scaledToFit()
-                                .padding(8)
+                            ZoomableImagePreview(image: image)
+                                .id(item.id)
                         } else {
                             Image(systemName: "photo")
                                 .font(.system(size: 48, weight: .thin))
@@ -1041,14 +1104,7 @@ struct ContentView: View {
         model.items.first { $0.id == activeID } ?? model.items.first
     }
 
-    private var visibleProfiles: [ColorProfile] {
-        guard !model.items.isEmpty, model.readyCount == model.items.count else {
-            return ColorProfile.allCases
-        }
-        return ColorProfile.allCases.filter { profile in
-            model.items.contains { ($0.result?.profile ?? .unknown) == profile }
-        }
-    }
+    private var visibleProfiles: [ColorProfile] { ColorProfile.allCases }
 
     var body: some View {
         VStack(spacing: 9) {
