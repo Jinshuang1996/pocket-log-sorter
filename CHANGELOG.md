@@ -2,6 +2,22 @@
 
 All notable changes to Pocket Log Sorter are documented here.
 
+## 2.8.0 - 2026-08-25
+
+### Added
+
+- The main window can now be resized freely from its edges and corners and supports native macOS full-screen mode.
+- Added an in-app full-screen control while retaining the standard macOS green window button.
+
+### Changed
+
+- The workspace now adapts its sidebar, inspector, preview height and header content to compact and large window sizes.
+- The sidebar and inspector use independent vertical overflow handling at compact heights.
+
+### Fixed
+
+- The clear-all button now participates in the sidebar content flow instead of being pushed over nearby text at smaller window sizes.
+
 ## 2.7.0 - 2026-08-25
 
 ### Added

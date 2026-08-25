@@ -146,7 +146,9 @@ ColorGammaSxS == nil && record_mode == 8 // 普通 Rec.709
 
 `selectedForExport` 使用 `Set<UUID>` 保存多选状态。活动预览素材和导出选择互相独立：点击卡片只改变 `activeID`，点击卡片勾选框才改变导出集合。`sort()` 在处理每个条目前先检查该集合，因此未选择的素材不会发生文件操作。
 
-上半区使用固定布局，`VideoPlayer`、环形占比图和导出控件不会跟随素材列表移动。照片由 `ZoomableImagePreview` 显示，缩放范围为 25%–600%；放大后的内容尺寸参与双向 `ScrollView` 布局，因此可以平移查看细节。下半区的外层 `ScrollView(.horizontal)` 只负责格式切换，每个 `ProfileGroupView` 内部拥有独立的 `ScrollView(.vertical)`。`GeometryReader` 将所有格式列约束到同一可视高度，因此最大分组不会撑高其他列；所有 `ColorProfile` 始终显示。
+根视图使用 `GeometryReader` 按实时窗口尺寸计算上半区高度、侧栏宽度和检查器宽度。窗口低于紧凑阈值时，导入区会收紧间距，非必要的标题辅助文字会隐藏；侧栏与检查器各自处理纵向溢出，因此控件不会互相覆盖。窗口仅设置 `960 × 680` 的安全最小尺寸，不再锁定到固定内容尺寸，并通过 AppKit 启用原生全屏。
+
+上半区中的 `VideoPlayer`、环形占比图和导出控件不会跟随素材列表移动。照片由 `ZoomableImagePreview` 显示，缩放范围为 25%–600%；放大后的内容尺寸参与双向 `ScrollView` 布局，因此可以平移查看细节。下半区的外层 `ScrollView(.horizontal)` 只负责格式切换，每个 `ProfileGroupView` 内部拥有独立的 `ScrollView(.vertical)`。`GeometryReader` 将所有格式列约束到同一可视高度，因此最大分组不会撑高其他列；所有 `ColorProfile` 始终显示。
 
 `DonutChartView` 根据每个 `ColorProfile` 的实际数量计算累计区间，用多个旋转后的 `Circle.trim` 绘制环形分段，不依赖第三方图表库。
 

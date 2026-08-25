@@ -554,25 +554,30 @@ struct Panel<Content: View>: View {
 struct ImportDropZone: View {
     let browseAction: () -> Void
     let dropAction: ([NSItemProvider]) -> Bool
+    let compact: Bool
     @State private var targeted = false
 
     var body: some View {
-        VStack(spacing: 12) {
+        VStack(spacing: compact ? 7 : 12) {
             Image(systemName: "square.and.arrow.down")
-                .font(.system(size: 34, weight: .light))
+                .font(.system(size: compact ? 27 : 34, weight: .light))
                 .foregroundStyle(targeted ? Color.cyan : Color.white.opacity(0.44))
             VStack(spacing: 4) {
                 Text("拖放视频、JPG、RAW 或素材文件夹")
                     .font(.system(size: 13, weight: .semibold))
+                    .multilineTextAlignment(.center)
+                    .lineLimit(2)
                 Text("照片独立分组 · 自动匹配同名 LRF")
                     .font(.caption)
                     .foregroundStyle(.secondary)
+                    .multilineTextAlignment(.center)
+                    .lineLimit(2)
             }
             Button("点击导入", action: browseAction)
                 .buttonStyle(.borderedProminent)
                 .tint(Color(red: 0.04, green: 0.52, blue: 0.92))
         }
-        .frame(maxWidth: .infinity, minHeight: 155)
+        .frame(maxWidth: .infinity, minHeight: compact ? 112 : 155)
         .background(targeted ? Color.cyan.opacity(0.10) : Color.black.opacity(0.10), in: RoundedRectangle(cornerRadius: 8))
         .overlay(
             RoundedRectangle(cornerRadius: 8)
@@ -586,55 +591,69 @@ struct ImportDropZone: View {
 
 struct SidebarView: View {
     @ObservedObject var model: SorterModel
+    let width: CGFloat
+    let compact: Bool
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            VStack(alignment: .leading, spacing: 3) {
-                HStack(spacing: 7) {
-                    Text("POCKET").foregroundStyle(Color(red: 0.12, green: 0.70, blue: 1.00))
-                    Text("LOG SORTER").foregroundStyle(.white.opacity(0.72))
-                }
-                .font(.system(size: 20, weight: .bold, design: .rounded))
-                Text("DJI Color Profile Workspace")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-            }
-            .padding(.horizontal, 4)
-
-            Panel {
-                VStack(alignment: .leading, spacing: 10) {
-                    Label("导入素材", systemImage: "tray.and.arrow.down").font(.headline)
-                    ImportDropZone(browseAction: model.chooseFiles, dropAction: model.acceptDrop)
-                }
-                .padding(12)
-            }
-
-            Panel {
-                VStack(alignment: .leading, spacing: 10) {
-                    HStack {
-                        Text("项目概览").font(.headline)
-                        Spacer()
-                        Text("\(model.readyCount)/\(model.items.count)")
-                            .font(.caption.monospacedDigit())
-                            .foregroundStyle(.secondary)
+        ScrollView(.vertical) {
+            VStack(alignment: .leading, spacing: compact ? 8 : 12) {
+                VStack(alignment: .leading, spacing: 3) {
+                    HStack(spacing: 7) {
+                        Text("POCKET").foregroundStyle(Color(red: 0.12, green: 0.70, blue: 1.00))
+                        Text("LOG SORTER").foregroundStyle(.white.opacity(0.72))
                     }
-                    metricRow("视频", value: "\(model.videoCount)", icon: "film")
-                    metricRow("照片", value: "\(model.photoCount)", icon: "photo")
-                    metricRow("LRF 匹配", value: "\(model.lrfCount)", icon: "photo.on.rectangle")
-                    metricRow("格式分组", value: "\(model.detectedGroupCount)", icon: "square.grid.2x2")
+                    .font(.system(size: compact ? 17 : 20, weight: .bold, design: .rounded))
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.75)
+                    Text("DJI Color Profile Workspace")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
                 }
-                .padding(13)
-            }
+                .padding(.horizontal, 4)
 
-            Spacer(minLength: 0)
-            if !model.items.isEmpty {
-                Button(role: .destructive, action: model.clear) {
-                    Label("清空当前项目", systemImage: "trash").frame(maxWidth: .infinity)
+                Panel {
+                    VStack(alignment: .leading, spacing: compact ? 7 : 10) {
+                        Label("导入素材", systemImage: "tray.and.arrow.down").font(.headline)
+                        ImportDropZone(
+                            browseAction: model.chooseFiles,
+                            dropAction: model.acceptDrop,
+                            compact: compact
+                        )
+                    }
+                    .padding(compact ? 9 : 12)
                 }
-                .buttonStyle(.bordered)
+
+                Panel {
+                    VStack(alignment: .leading, spacing: compact ? 6 : 10) {
+                        HStack {
+                            Text("项目概览").font(.headline)
+                            Spacer()
+                            Text("\(model.readyCount)/\(model.items.count)")
+                                .font(.caption.monospacedDigit())
+                                .foregroundStyle(.secondary)
+                        }
+                        metricRow("视频", value: "\(model.videoCount)", icon: "film")
+                        metricRow("照片", value: "\(model.photoCount)", icon: "photo")
+                        metricRow("LRF 匹配", value: "\(model.lrfCount)", icon: "photo.on.rectangle")
+                        metricRow("格式分组", value: "\(model.detectedGroupCount)", icon: "square.grid.2x2")
+                    }
+                    .padding(compact ? 10 : 13)
+                }
+
+                if !model.items.isEmpty {
+                    Button(role: .destructive, action: model.clear) {
+                        Label("清空所有素材", systemImage: "trash")
+                            .lineLimit(1)
+                            .frame(maxWidth: .infinity)
+                    }
+                    .buttonStyle(.bordered)
+                    .padding(.bottom, 2)
+                }
             }
+            .frame(maxWidth: .infinity, alignment: .leading)
         }
-        .frame(width: 250)
+        .scrollIndicators(.automatic)
+        .frame(width: width)
     }
 
     private func metricRow(_ title: String, value: String, icon: String) -> some View {
@@ -913,89 +932,92 @@ struct DonutChartView: View {
 struct InspectorView: View {
     @ObservedObject var model: SorterModel
     let selectedItem: MediaItem?
+    let width: CGFloat
 
     var body: some View {
         Panel {
-            VStack(alignment: .leading, spacing: 9) {
-                HStack {
-                    Text("分析与导出").font(.headline)
-                    Spacer()
-                    if model.readyCount < model.items.count { ProgressView().controlSize(.small) }
-                }
-
-                DonutChartView(items: model.items)
-
-                if let selectedItem {
-                    VStack(alignment: .leading, spacing: 3) {
-                        Text("当前素材判定")
-                            .font(.caption2.bold())
-                            .foregroundStyle(.secondary)
-                        Text(selectedItem.error ?? selectedItem.result?.reason ?? "正在读取元数据…")
-                            .font(.caption)
-                            .lineLimit(2)
-                            .truncationMode(.tail)
-                        if selectedItem.lrfURL != nil {
-                            Label("已匹配 LRF", systemImage: "checkmark.circle.fill")
-                                .font(.caption2)
-                                .foregroundStyle(Color.green)
-                        }
+            ScrollView(.vertical) {
+                VStack(alignment: .leading, spacing: 9) {
+                    HStack {
+                        Text("分析与导出").font(.headline)
+                        Spacer()
+                        if model.readyCount < model.items.count { ProgressView().controlSize(.small) }
                     }
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                }
 
-                Button(action: model.chooseOutput) {
-                    HStack(spacing: 8) {
-                        Image(systemName: "folder")
-                        VStack(alignment: .leading, spacing: 1) {
-                            Text("选择输出文件夹").lineLimit(1)
-                            Text(model.outputURL?.path(percentEncoded: false) ?? "尚未选择")
-                                .font(.caption2)
+                    DonutChartView(items: model.items)
+
+                    if let selectedItem {
+                        VStack(alignment: .leading, spacing: 3) {
+                            Text("当前素材判定")
+                                .font(.caption2.bold())
                                 .foregroundStyle(.secondary)
-                                .lineLimit(1)
-                                .truncationMode(.middle)
+                            Text(selectedItem.error ?? selectedItem.result?.reason ?? "正在读取元数据…")
+                                .font(.caption)
+                                .lineLimit(2)
+                                .truncationMode(.tail)
+                            if selectedItem.lrfURL != nil {
+                                Label("已匹配 LRF", systemImage: "checkmark.circle.fill")
+                                    .font(.caption2)
+                                    .foregroundStyle(Color.green)
+                            }
                         }
-                        Spacer(minLength: 0)
+                        .frame(maxWidth: .infinity, alignment: .leading)
                     }
-                }
-                .buttonStyle(.bordered)
 
-                Picker("", selection: $model.copyFiles) {
-                    Text("复制原片").tag(true)
-                    Text("移动原片").tag(false)
-                }
-                .labelsHidden()
-                .pickerStyle(.segmented)
+                    Button(action: model.chooseOutput) {
+                        HStack(spacing: 8) {
+                            Image(systemName: "folder")
+                            VStack(alignment: .leading, spacing: 1) {
+                                Text("选择输出文件夹").lineLimit(1)
+                                Text(model.outputURL?.path(percentEncoded: false) ?? "尚未选择")
+                                    .font(.caption2)
+                                    .foregroundStyle(.secondary)
+                                    .lineLimit(1)
+                                    .truncationMode(.middle)
+                            }
+                            Spacer(minLength: 0)
+                        }
+                    }
+                    .buttonStyle(.bordered)
 
-                Toggle("同时导出匹配的 LRF", isOn: $model.includeLRF)
-                    .font(.caption)
-                    .lineLimit(1)
+                    Picker("", selection: $model.copyFiles) {
+                        Text("复制原片").tag(true)
+                        Text("移动原片").tag(false)
+                    }
+                    .labelsHidden()
+                    .pickerStyle(.segmented)
 
-                HStack(spacing: 7) {
-                    Button("全选") { model.selectAll() }
-                    Button("取消全选") { model.deselectAll() }
-                    Spacer()
-                    Text("\(model.selectedCount)/\(model.items.count)")
-                        .font(.caption.monospacedDigit())
-                        .foregroundStyle(.secondary)
-                }
-                .controlSize(.small)
-
-                Spacer(minLength: 0)
-
-                Button(action: model.sort) {
-                    Label("导出已选 \(model.selectedCount) 个", systemImage: "square.and.arrow.up")
-                        .font(.system(size: 13, weight: .semibold))
+                    Toggle("同时导出匹配的 LRF", isOn: $model.includeLRF)
+                        .font(.caption)
                         .lineLimit(1)
-                        .frame(maxWidth: .infinity)
-                        .padding(.vertical, 4)
+
+                    HStack(spacing: 7) {
+                        Button("全选") { model.selectAll() }
+                        Button("取消全选") { model.deselectAll() }
+                        Spacer()
+                        Text("\(model.selectedCount)/\(model.items.count)")
+                            .font(.caption.monospacedDigit())
+                            .foregroundStyle(.secondary)
+                    }
+                    .controlSize(.small)
+
+                    Button(action: model.sort) {
+                        Label("导出已选 \(model.selectedCount) 个", systemImage: "square.and.arrow.up")
+                            .font(.system(size: 13, weight: .semibold))
+                            .lineLimit(1)
+                            .frame(maxWidth: .infinity)
+                            .padding(.vertical, 4)
+                    }
+                    .buttonStyle(.borderedProminent)
+                    .tint(Color(red: 0.02, green: 0.52, blue: 0.92))
+                    .disabled(!model.canSort)
                 }
-                .buttonStyle(.borderedProminent)
-                .tint(Color(red: 0.02, green: 0.52, blue: 0.92))
-                .disabled(!model.canSort)
+                .frame(maxWidth: .infinity, alignment: .leading)
             }
+            .scrollIndicators(.automatic)
             .padding(13)
         }
-        .frame(width: 282)
+        .frame(width: width)
     }
 }
 
@@ -1160,68 +1182,95 @@ struct ContentView: View {
     private var visibleProfiles: [ColorProfile] { ColorProfile.allCases }
 
     var body: some View {
-        VStack(spacing: 9) {
-            HStack(spacing: 10) {
-                Text("POCKET LOG SORTER")
-                    .font(.caption.weight(.semibold))
-                    .foregroundStyle(.secondary)
-                Spacer()
-                Text(model.status)
-                    .font(.caption)
-                    .lineLimit(1)
-                    .truncationMode(.middle)
-                    .foregroundStyle(model.status.hasPrefix("完成") ? Color.green : Color.secondary)
-                Spacer()
-                Text("DJI COLOR WORKSPACE")
-                    .font(.caption2.monospaced())
-                    .foregroundStyle(.secondary)
-            }
-            .padding(.horizontal, 5)
+        GeometryReader { window in
+            let compactWidth = window.size.width < 1180
+            let compactHeight = window.size.height < 760
+            let sidebarWidth: CGFloat = compactWidth ? 218 : 250
+            let inspectorWidth: CGFloat = compactWidth ? 250 : 282
+            let topHeight = min(500, max(compactHeight ? 370 : 410, window.size.height * 0.54))
 
-            HStack(alignment: .top, spacing: 10) {
-                SidebarView(model: model)
-                VideoPreviewView(item: activeItem)
-                    .frame(maxWidth: .infinity)
-                InspectorView(model: model, selectedItem: activeItem)
-            }
-            .frame(height: 426)
-
-            HStack(spacing: 10) {
-                Text("按素材格式分组").font(.headline)
-                Text("点击卡片预览 · 每个分组可独立上下滚动")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                    .lineLimit(1)
-                Spacer()
-                Text("已选 \(model.selectedCount)/\(model.items.count)")
-                    .font(.caption.monospacedDigit())
-                    .foregroundStyle(.secondary)
-                Button("全选", action: model.selectAll).controlSize(.small)
-                Button("取消全选", action: model.deselectAll).controlSize(.small)
-            }
-            .padding(.horizontal, 4)
-
-            GeometryReader { proxy in
-                ScrollView(.horizontal) {
-                    HStack(alignment: .top, spacing: 10) {
-                        ForEach(visibleProfiles) { profile in
-                            ProfileGroupView(
-                                profile: profile,
-                                items: model.items.filter { ($0.result?.profile ?? .unknown) == profile },
-                                activeID: $activeID,
-                                model: model
-                            )
-                            .frame(height: max(160, proxy.size.height - 4))
-                        }
+            VStack(spacing: 9) {
+                HStack(spacing: 10) {
+                    Text("POCKET LOG SORTER")
+                        .font(.caption.weight(.semibold))
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
+                    Spacer(minLength: 8)
+                    Text(model.status)
+                        .font(.caption)
+                        .lineLimit(1)
+                        .truncationMode(.middle)
+                        .foregroundStyle(model.status.hasPrefix("完成") ? Color.green : Color.secondary)
+                    Spacer(minLength: 8)
+                    if !compactWidth {
+                        Text("DJI COLOR WORKSPACE")
+                            .font(.caption2.monospaced())
+                            .foregroundStyle(.secondary)
+                            .lineLimit(1)
                     }
-                    .padding(.bottom, 4)
+                    Button {
+                        (NSApp.keyWindow ?? NSApp.mainWindow)?.toggleFullScreen(nil)
+                    } label: {
+                        Image(systemName: "arrow.up.left.and.arrow.down.right")
+                    }
+                    .buttonStyle(.borderless)
+                    .help("进入或退出全屏")
                 }
-                .scrollIndicators(.visible)
+                .padding(.horizontal, 5)
+
+                HStack(alignment: .top, spacing: 10) {
+                    SidebarView(
+                        model: model,
+                        width: sidebarWidth,
+                        compact: compactWidth || compactHeight
+                    )
+                    VideoPreviewView(item: activeItem)
+                        .frame(minWidth: 360, maxWidth: .infinity)
+                    InspectorView(model: model, selectedItem: activeItem, width: inspectorWidth)
+                }
+                .frame(height: topHeight)
+
+                HStack(spacing: 10) {
+                    Text("按素材格式分组").font(.headline).lineLimit(1)
+                    if !compactWidth {
+                        Text("点击卡片预览 · 每个分组可独立上下滚动")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                            .lineLimit(1)
+                    }
+                    Spacer(minLength: 8)
+                    Text("已选 \(model.selectedCount)/\(model.items.count)")
+                        .font(.caption.monospacedDigit())
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
+                    Button("全选", action: model.selectAll).controlSize(.small)
+                    Button("取消全选", action: model.deselectAll).controlSize(.small)
+                }
+                .padding(.horizontal, 4)
+
+                GeometryReader { groups in
+                    ScrollView(.horizontal) {
+                        HStack(alignment: .top, spacing: 10) {
+                            ForEach(visibleProfiles) { profile in
+                                ProfileGroupView(
+                                    profile: profile,
+                                    items: model.items.filter { ($0.result?.profile ?? .unknown) == profile },
+                                    activeID: $activeID,
+                                    model: model
+                                )
+                                .frame(height: max(150, groups.size.height - 4))
+                            }
+                        }
+                        .padding(.bottom, 4)
+                    }
+                    .scrollIndicators(.visible)
+                }
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .padding(10)
+            .frame(width: window.size.width, height: window.size.height)
         }
-        .padding(10)
-        .frame(width: 1320, height: 800)
+        .frame(minWidth: 960, minHeight: 680)
         .background(appBackground)
         .preferredColorScheme(.dark)
         .onDrop(of: [UTType.fileURL.identifier], isTargeted: nil, perform: model.acceptDrop)
@@ -1239,7 +1288,6 @@ struct PocketColorSorterApp: App {
         WindowGroup { ContentView() }
             .windowStyle(.hiddenTitleBar)
             .defaultSize(width: 1320, height: 800)
-            .windowResizability(.contentSize)
         Settings { EmptyView() }
     }
 }
@@ -1248,5 +1296,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     func applicationDidFinishLaunching(_ notification: Notification) {
         NSApp.setActivationPolicy(.regular)
         NSApp.activate(ignoringOtherApps: true)
+        DispatchQueue.main.async {
+            for window in NSApp.windows {
+                window.styleMask.insert([.resizable, .miniaturizable])
+                window.collectionBehavior.insert(.fullScreenPrimary)
+                window.minSize = NSSize(width: 960, height: 680)
+            }
+        }
     }
 }
