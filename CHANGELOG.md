@@ -2,6 +2,42 @@
 
 All notable changes to Pocket Log Sorter are documented here.
 
+## 2.6.0 - 2026-08-25
+
+### Added
+
+- JPG and camera RAW previews now support zoom buttons, percentage display, fit-to-window reset, double-click zoom and trackpad pinch gestures.
+- Enlarged still images can be panned horizontally and vertically inside the fixed preview area.
+
+### Fixed
+
+- All format groups remain visible after analysis; empty groups are no longer removed from the lower workspace.
+
+## 2.5.0 - 2026-08-25
+
+### Changed
+
+- Each populated format column now owns its vertical scroll area, so a large group no longer stretches every other column.
+- The lower workspace scrolls horizontally between formats while the upper preview and controls remain fixed.
+- Format columns use a consistent fixed-height workspace with independent vertical scrolling.
+
+### Fixed
+
+- Removed the long blank area shown below short or empty groups when another format contained many files.
+
+## 2.4.0 - 2026-08-25
+
+### Added
+
+- JPG/JPEG photos can now be selected, dragged or discovered recursively and are exported to `07_JPG`.
+- Common camera RAW formats, including DNG, ARW, CR2/CR3, NEF, RAF and RW2, are exported to `08_RAW`.
+- Still photos receive local ImageIO thumbnails and use the fixed upper preview area without entering the video player.
+
+### Changed
+
+- Project totals now distinguish videos from photos while selection, donut proportions and move/copy export work across both.
+- Import and output guidance now describes video, JPG, RAW and LRF behavior.
+
 ## 2.3.0 - 2026-08-20
 
 ### Fixed
