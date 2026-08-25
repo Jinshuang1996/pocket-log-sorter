@@ -3,6 +3,7 @@ import AVFoundation
 import AVKit
 import UniformTypeIdentifiers
 import AppKit
+import ImageIO
 
 enum ColorProfile: String, CaseIterable, Identifiable {
     case dlog2 = "D-Log 2"
@@ -11,6 +12,8 @@ enum ColorProfile: String, CaseIterable, Identifiable {
     case hlg = "HLG"
     case hdr = "HDR / PQ"
     case normal = "Rec.709"
+    case jpeg = "JPG"
+    case raw = "RAW"
     case unknown = "待确认"
 
     var id: String { rawValue }
@@ -22,6 +25,8 @@ enum ColorProfile: String, CaseIterable, Identifiable {
         case .hlg: return "04_HLG"
         case .hdr: return "05_HDR"
         case .normal: return "06_Normal_Rec709"
+        case .jpeg: return "07_JPG"
+        case .raw: return "08_RAW"
         case .unknown: return "99_待确认"
         }
     }
@@ -31,6 +36,8 @@ enum ColorProfile: String, CaseIterable, Identifiable {
         case .hlg: return "sun.max.trianglebadge.exclamationmark"
         case .hdr: return "sparkles.tv"
         case .normal: return "rectangle.fill.on.rectangle.fill"
+        case .jpeg: return "photo"
+        case .raw: return "camera.aperture"
         case .unknown: return "questionmark.circle"
         }
     }
@@ -42,6 +49,8 @@ enum ColorProfile: String, CaseIterable, Identifiable {
         case .hlg: return Color(red: 1.00, green: 0.65, blue: 0.18)
         case .hdr: return Color(red: 0.26, green: 0.87, blue: 0.58)
         case .normal: return Color(red: 0.25, green: 0.78, blue: 0.88)
+        case .jpeg: return Color(red: 0.96, green: 0.78, blue: 0.26)
+        case .raw: return Color(red: 0.93, green: 0.43, blue: 0.24)
         case .unknown: return Color(red: 0.57, green: 0.62, blue: 0.68)
         }
     }
@@ -62,10 +71,22 @@ struct MediaItem: Identifiable {
     var duration: TimeInterval?
     var error: String?
     var isWorking = true
+
+    var isStillImage: Bool {
+        Detector.imageExtensions.contains(url.pathExtension.lowercased())
+    }
 }
 
 enum Detector {
-    static let supportedExtensions: Set<String> = ["mp4", "mov", "m4v"]
+    static let videoExtensions: Set<String> = ["mp4", "mov", "m4v"]
+    static let jpegExtensions: Set<String> = ["jpg", "jpeg"]
+    static let rawExtensions: Set<String> = [
+        "3fr", "arw", "cr2", "cr3", "dng", "erf", "iiq", "kdc", "mef",
+        "mos", "nef", "nrw", "orf", "pef", "raf", "raw", "rw2", "rwl",
+        "srw", "x3f"
+    ]
+    static let imageExtensions = jpegExtensions.union(rawExtensions)
+    static let supportedExtensions = videoExtensions.union(imageExtensions)
 
     static func classifyText(_ raw: String) -> DetectionResult {
         let s = raw.lowercased()
@@ -99,6 +120,14 @@ enum Detector {
     }
 
     static func inspect(url: URL) async -> DetectionResult {
+        let ext = url.pathExtension.lowercased()
+        if jpegExtensions.contains(ext) {
+            return DetectionResult(profile: .jpeg, reason: "JPEG 相机照片", metadata: "文件扩展名：.\(ext)")
+        }
+        if rawExtensions.contains(ext) {
+            return DetectionResult(profile: .raw, reason: "相机 RAW 原始照片", metadata: "文件扩展名：.\(ext)")
+        }
+
         var djiEvidence = ""
         if let evidence = try? DjiMetadataReader.inspect(url: url) {
             djiEvidence = "djmd: ColorGammaSxS=\(evidence.colorGammaSxS.map(String.init) ?? "nil"), record_mode=\(evidence.recordMode.map(String.init) ?? "nil")"
@@ -156,6 +185,9 @@ struct ThumbnailPayload {
 
 enum ThumbnailLoader {
     static func load(for videoURL: URL, preferredLRF: URL? = nil) -> ThumbnailPayload {
+        if Detector.imageExtensions.contains(videoURL.pathExtension.lowercased()) {
+            return ThumbnailPayload(image: renderImage(url: videoURL), lrfURL: nil, duration: nil)
+        }
         let lrf = preferredLRF ?? companionLRF(for: videoURL)
         if let lrf, let preview = render(url: lrf) {
             return ThumbnailPayload(image: preview.image, lrfURL: lrf, duration: preview.duration)
@@ -192,6 +224,21 @@ enum ThumbnailLoader {
         guard let cgImage = try? generator.copyCGImage(at: time, actualTime: nil) else { return nil }
         return (NSImage(cgImage: cgImage, size: .zero), duration)
     }
+
+    private static func renderImage(url: URL) -> NSImage? {
+        guard let source = CGImageSourceCreateWithURL(url as CFURL, nil) else {
+            return NSImage(contentsOf: url)
+        }
+        let options: [CFString: Any] = [
+            kCGImageSourceCreateThumbnailFromImageAlways: true,
+            kCGImageSourceCreateThumbnailWithTransform: true,
+            kCGImageSourceThumbnailMaxPixelSize: 960
+        ]
+        guard let image = CGImageSourceCreateThumbnailAtIndex(source, 0, options as CFDictionary) else {
+            return NSImage(contentsOf: url)
+        }
+        return NSImage(cgImage: image, size: .zero)
+    }
 }
 
 @MainActor
@@ -201,13 +248,15 @@ final class SorterModel: ObservableObject {
     @Published var copyFiles = false
     @Published var includeLRF = true
     @Published var selectedForExport: Set<UUID> = []
-    @Published var status = "拖入视频或点击导入"
+    @Published var status = "拖入视频、照片或点击导入"
     private var importedLRFs: [URL] = []
 
     var readyCount: Int { items.filter { !$0.isWorking }.count }
     var canSort: Bool { !selectedForExport.isEmpty && items.allSatisfy { !$0.isWorking } && outputURL != nil }
     var selectedCount: Int { selectedForExport.count }
     var lrfCount: Int { items.filter { $0.lrfURL != nil }.count }
+    var videoCount: Int { items.filter { !$0.isStillImage }.count }
+    var photoCount: Int { items.filter { $0.isStillImage }.count }
     var detectedGroupCount: Int { Set(items.compactMap { $0.result?.profile }).count }
 
     func add(urls: [URL]) {
@@ -216,6 +265,7 @@ final class SorterModel: ObservableObject {
 
         var newlyAttached = 0
         for index in items.indices {
+            guard !items[index].isStillImage else { continue }
             guard let lrf = preferredLRF(for: items[index].url),
                   items[index].lrfURL?.standardizedFileURL != lrf.standardizedFileURL else { continue }
             let itemID = items[index].id
@@ -226,22 +276,22 @@ final class SorterModel: ObservableObject {
         }
 
         let existing = Set(items.map { $0.url.standardizedFileURL.path })
-        let fresh = expanded.videos.filter { !existing.contains($0.standardizedFileURL.path) }
+        let fresh = expanded.media.filter { !existing.contains($0.standardizedFileURL.path) }
         guard !fresh.isEmpty else {
             if !expanded.lrfs.isEmpty {
                 status = "已导入 \(expanded.lrfs.count) 个 LRF，匹配 \(newlyAttached) 个视频；LRF 不会显示在下方"
             } else {
-                status = expanded.videos.isEmpty ? "没有找到视频或 LRF 文件" : "这些视频已在项目中"
+                status = expanded.media.isEmpty ? "没有找到支持的视频、照片或 LRF 文件" : "这些素材已在项目中"
             }
             return
         }
         let newItems = fresh.map { MediaItem(url: $0) }
         items.append(contentsOf: newItems)
         selectedForExport.formUnion(newItems.map(\.id))
-        status = "正在分析 \(fresh.count) 个视频…"
+        status = "正在分析 \(fresh.count) 个素材…"
 
         for item in newItems {
-            let preferredLRF = preferredLRF(for: item.url)
+            let preferredLRF = item.isStillImage ? nil : preferredLRF(for: item.url)
             Task {
                 let payload = await Task.detached(priority: .userInitiated) {
                     let result = await Detector.inspect(url: item.url)
@@ -256,7 +306,7 @@ final class SorterModel: ObservableObject {
                     items[index].isWorking = false
                 }
                 status = items.allSatisfy { !$0.isWorking }
-                    ? "分析完成：\(items.count) 个视频，匹配 \(lrfCount) 个 LRF"
+                    ? "分析完成：\(items.count) 个素材，匹配 \(lrfCount) 个 LRF"
                     : "正在分析… \(readyCount)/\(items.count)"
             }
         }
@@ -267,16 +317,20 @@ final class SorterModel: ObservableObject {
         panel.canChooseFiles = true
         panel.canChooseDirectories = true
         panel.allowsMultipleSelection = true
-        var types: [UTType] = [.movie, .mpeg4Movie, .quickTimeMovie, .folder]
+        var types: [UTType] = [.movie, .mpeg4Movie, .quickTimeMovie, .image, .jpeg, .folder]
+        if let rawType = UTType("public.camera-raw-image") { types.append(rawType) }
+        for ext in Detector.rawExtensions.sorted() {
+            if let type = UTType(filenameExtension: ext), !types.contains(type) { types.append(type) }
+        }
         if let lrfType = UTType("com.pocketlogsorter.dji-lrf") { types.append(lrfType) }
         panel.allowedContentTypes = types
         panel.prompt = "导入素材"
-        panel.message = "选择视频、LRF 或整个 DJI 素材文件夹；LRF 只用于播放与缩略图，不会显示为素材"
+        panel.message = "选择视频、JPG、相机 RAW、LRF 或整个素材文件夹；LRF 不会单独显示"
         if panel.runModal() == .OK { add(urls: panel.urls) }
     }
 
-    private func expand(urls: [URL]) -> (videos: [URL], lrfs: [URL]) {
-        var videos: [URL] = []
+    private func expand(urls: [URL]) -> (media: [URL], lrfs: [URL]) {
+        var media: [URL] = []
         var lrfs: [URL] = []
         let fm = FileManager.default
         for url in urls {
@@ -285,18 +339,18 @@ final class SorterModel: ObservableObject {
                 if let enumerator = fm.enumerator(at: url, includingPropertiesForKeys: [.isRegularFileKey], options: [.skipsHiddenFiles]) {
                     for case let child as URL in enumerator {
                         let ext = child.pathExtension.lowercased()
-                        if Detector.supportedExtensions.contains(ext) { videos.append(child) }
+                        if Detector.supportedExtensions.contains(ext) { media.append(child) }
                         else if ext == "lrf" { lrfs.append(child) }
                     }
                 }
             } else if Detector.supportedExtensions.contains(url.pathExtension.lowercased()) {
-                videos.append(url)
+                media.append(url)
             } else if url.pathExtension.lowercased() == "lrf" {
                 lrfs.append(url)
             }
         }
         return (
-            videos.sorted { $0.lastPathComponent.localizedStandardCompare($1.lastPathComponent) == .orderedAscending },
+            media.sorted { $0.lastPathComponent.localizedStandardCompare($1.lastPathComponent) == .orderedAscending },
             lrfs.sorted { $0.lastPathComponent.localizedStandardCompare($1.lastPathComponent) == .orderedAscending }
         )
     }
@@ -344,7 +398,7 @@ final class SorterModel: ObservableObject {
         panel.canChooseFiles = false
         panel.canCreateDirectories = true
         panel.prompt = "选择输出位置"
-        panel.message = "应用会在这里创建 D-Log、HLG、HDR、Rec.709 等分类文件夹"
+        panel.message = "应用会在这里创建 D-Log、HLG、HDR、Rec.709、JPG、RAW 等分类文件夹"
         if panel.runModal() == .OK { outputURL = panel.url }
     }
 
@@ -383,9 +437,9 @@ final class SorterModel: ObservableObject {
             }
         }
         if failures == 0 && lrfFailures == 0 {
-            status = "完成：已分类 \(successes) 个视频"
+            status = "完成：已分类 \(successes) 个素材"
         } else {
-            status = "完成 \(successes) 个；视频失败 \(failures) 个，LRF 失败 \(lrfFailures) 个"
+            status = "完成 \(successes) 个；素材失败 \(failures) 个，LRF 失败 \(lrfFailures) 个"
         }
     }
 
@@ -393,7 +447,7 @@ final class SorterModel: ObservableObject {
         items.removeAll()
         selectedForExport.removeAll()
         importedLRFs.removeAll()
-        status = "拖入视频或点击导入"
+        status = "拖入视频、照片或点击导入"
     }
 
     func selectAll() {
@@ -455,9 +509,9 @@ struct ImportDropZone: View {
                 .font(.system(size: 34, weight: .light))
                 .foregroundStyle(targeted ? Color.cyan : Color.white.opacity(0.44))
             VStack(spacing: 4) {
-                Text("拖放视频、LRF 或素材文件夹")
+                Text("拖放视频、JPG、RAW 或素材文件夹")
                     .font(.system(size: 13, weight: .semibold))
-                Text("自动匹配同名 LRF 缩略文件")
+                Text("照片独立分组 · 自动匹配同名 LRF")
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
@@ -514,9 +568,10 @@ struct SidebarView: View {
                             .font(.caption.monospacedDigit())
                             .foregroundStyle(.secondary)
                     }
-                    metricRow("视频", value: "\(model.items.count)", icon: "film")
+                    metricRow("视频", value: "\(model.videoCount)", icon: "film")
+                    metricRow("照片", value: "\(model.photoCount)", icon: "photo")
                     metricRow("LRF 匹配", value: "\(model.lrfCount)", icon: "photo.on.rectangle")
-                    metricRow("色彩分组", value: "\(model.detectedGroupCount)", icon: "square.grid.2x2")
+                    metricRow("格式分组", value: "\(model.detectedGroupCount)", icon: "square.grid.2x2")
                 }
                 .padding(13)
             }
@@ -562,9 +617,20 @@ struct VideoPreviewView: View {
                             Image(systemName: "play.rectangle")
                                 .font(.system(size: 48, weight: .thin))
                                 .foregroundStyle(.white.opacity(0.22))
-                            Text("导入素材后可在这里播放")
+                            Text("导入素材后可在这里播放或预览")
                                 .font(.subheadline)
                                 .foregroundStyle(.secondary)
+                        }
+                    } else if let item, item.isStillImage {
+                        if let image = item.thumbnail {
+                            Image(nsImage: image)
+                                .resizable()
+                                .scaledToFit()
+                                .padding(8)
+                        } else {
+                            Image(systemName: "photo")
+                                .font(.system(size: 48, weight: .thin))
+                                .foregroundStyle(.white.opacity(0.22))
                         }
                     } else {
                         VideoPlayer(player: player)
@@ -579,13 +645,13 @@ struct VideoPreviewView: View {
                             .font(.subheadline.weight(.semibold))
                             .lineLimit(1)
                             .truncationMode(.middle)
-                        Text(item == nil ? "点击下方缩略图选择视频" : playbackSourceText)
+                        Text(item == nil ? "点击下方缩略图选择素材" : playbackSourceText)
                             .font(.caption2)
                             .foregroundStyle(.secondary)
                             .lineLimit(1)
                     }
                     Spacer(minLength: 8)
-                    if item?.lrfURL != nil {
+                    if item?.isStillImage == false && item?.lrfURL != nil {
                         Button(playOriginal ? "播放 LRF" : "播放原片") {
                             playOriginal.toggle()
                         }
@@ -619,12 +685,19 @@ struct VideoPreviewView: View {
     }
 
     private var playbackSourceText: String {
+        if let item, item.isStillImage {
+            return item.result?.profile == .raw ? "正在预览 RAW 原始照片" : "正在预览 JPG 照片"
+        }
         if playOriginal || item?.lrfURL == nil { return "正在播放原视频" }
         return "正在播放 LRF 代理文件"
     }
 
     private func loadPlayer() {
         player.pause()
+        if item?.isStillImage == true {
+            player.replaceCurrentItem(with: nil)
+            return
+        }
         guard let playbackURL else {
             player.replaceCurrentItem(with: nil)
             return
@@ -832,7 +905,7 @@ struct ClipCard: View {
                         .frame(width: proxy.size.width, height: proxy.size.height)
                         .clipped()
                 } else {
-                    Image(systemName: item.isWorking ? "hourglass" : "film")
+                    Image(systemName: item.isWorking ? "hourglass" : (item.isStillImage ? "photo" : "film"))
                         .font(.title2)
                         .foregroundStyle(.white.opacity(0.25))
                         .frame(width: proxy.size.width, height: proxy.size.height)
@@ -845,14 +918,14 @@ struct ClipCard: View {
                 )
 
                 HStack(spacing: 4) {
-                    Image(systemName: item.lrfURL == nil ? "film" : "photo.on.rectangle")
+                    Image(systemName: item.isStillImage ? "photo" : (item.lrfURL == nil ? "film" : "photo.on.rectangle"))
                         .font(.caption2)
                     Text(item.url.deletingPathExtension().lastPathComponent)
                         .font(.caption2.weight(.semibold))
                         .lineLimit(1)
                         .truncationMode(.middle)
                     Spacer(minLength: 2)
-                    Text(durationText(item.duration))
+                    Text(item.isStillImage ? item.url.pathExtension.uppercased() : durationText(item.duration))
                         .font(.caption2.monospacedDigit())
                 }
                 .foregroundStyle(.white)
@@ -990,7 +1063,7 @@ struct ContentView: View {
             .frame(height: 426)
 
             HStack(spacing: 10) {
-                Text("按色彩格式分组").font(.headline)
+                Text("按素材格式分组").font(.headline)
                 Text("点击卡片预览 · 勾选后按需导出")
                     .font(.caption)
                     .foregroundStyle(.secondary)

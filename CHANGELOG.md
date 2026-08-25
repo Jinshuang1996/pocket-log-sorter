@@ -2,6 +2,19 @@
 
 All notable changes to Pocket Log Sorter are documented here.
 
+## 2.4.0 - 2026-08-25
+
+### Added
+
+- JPG/JPEG photos can now be selected, dragged or discovered recursively and are exported to `07_JPG`.
+- Common camera RAW formats, including DNG, ARW, CR2/CR3, NEF, RAF and RW2, are exported to `08_RAW`.
+- Still photos receive local ImageIO thumbnails and use the fixed upper preview area without entering the video player.
+
+### Changed
+
+- Project totals now distinguish videos from photos while selection, donut proportions and move/copy export work across both.
+- Import and output guidance now describes video, JPG, RAW and LRF behavior.
+
 ## 2.3.0 - 2026-08-20
 
 ### Fixed

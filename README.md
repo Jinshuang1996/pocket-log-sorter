@@ -4,17 +4,17 @@
   <img src="assets/AppIcon-master.png" width="180" alt="Pocket Log Sorter icon">
 </p>
 
-一个面向 macOS 的本地视频色彩模式识别与分拣工具。它读取 DJI Pocket 素材中的私有 `djmd` 元数据和标准 QuickTime 色彩信息，区分 D-Log 2、D-Log、D-Log M、HLG、HDR/PQ、普通 Rec.709，并将素材复制或移动到不同文件夹，方便在后期批量套用正确的 LUT。
+一个面向 macOS 的本地相机素材识别与分拣工具。它读取 DJI Pocket 视频中的私有 `djmd` 元数据和标准 QuickTime 色彩信息，区分 D-Log 2、D-Log、D-Log M、HLG、HDR/PQ、普通 Rec.709，并将 JPG 与常见相机 RAW 照片独立归类，方便后期统一整理和套用 LUT。
 
 > Pocket Log Sorter 是独立开源项目，与 DJI 无隶属或官方合作关系。DJI、Osmo 和 Pocket 是其各自权利人的商标。
 
 ## 功能
 
-- 拖拽视频或整个素材文件夹。
-- 点击“选择文件”批量添加 MP4、MOV、M4V。
+- 拖拽视频、JPG、相机 RAW 或整个素材文件夹。
+- 点击“选择文件”批量添加 MP4、MOV、M4V、JPG/JPEG、DNG、ARW、CR2/CR3、NEF、RAF、RW2 等格式。
 - 自动匹配视频同目录下的同名 `.LRF` 代理文件，并优先使用它快速生成缩略图。
 - 可以直接选择或拖入 LRF；LRF 只作为视频辅助文件，不会在分组区域重复显示。
-- 在深色工作台中按色彩格式显示视频缩略图、时长、判定依据和分组数量。
+- 在深色工作台中按格式显示视频或照片缩略图、时长/扩展名、判定依据和分组数量。
 - 内置视频播放器，可直接播放 LRF 代理或切换到原视频。
 - 环形图显示各色彩格式的素材数量与占比。
 - 支持全选、取消全选和任意多选，只导出勾选的素材。
@@ -22,6 +22,7 @@
 - 原生读取 MP4/MOV 中的 DJI `djmd` 私有轨道，无需 FFmpeg、ExifTool 或 Python。
 - 自动识别 D-Log 2、D-Log 和普通 Rec.709。
 - 兼容 D-Log M、HLG、PQ/Dolby Vision HDR 标记。
+- JPG/JPEG 自动进入 `07_JPG`，常见相机 RAW 自动进入 `08_RAW`。
 - 自动创建分类文件夹，默认移动原片，也可切换为复制。
 - 可选让匹配的 LRF 跟随原片导出到同一分类目录。
 - 同名文件自动追加序号，绝不覆盖已有文件。
@@ -52,7 +53,9 @@ DJI 素材目录中若存在 `DJI_0001.MP4` 与 `DJI_0001.LRF`，程序会自动
 | `04_HLG` | Rec.2100 HLG | HLG / ARIB STD-B67 标记 |
 | `05_HDR` | PQ / Dolby Vision HDR | SMPTE ST 2084、Dolby Vision 或 BT.2020 |
 | `06_Normal_Rec709` | 普通 Rec.709 | `ColorGammaSxS` 缺失且 `record_mode = 8`，或 DJI 明确标记 Rec.709 |
-| `99_待确认` | 无法安全识别 | 元数据缺失、未知固件值或格式不受支持 |
+| `07_JPG` | JPG/JPEG 照片 | 文件扩展名 |
+| `08_RAW` | 相机 RAW 原片 | DNG、ARW、CR2/CR3、NEF、RAF、RW2 等扩展名 |
+| `99_待确认` | 无法安全识别的视频 | 元数据缺失、未知固件值或格式不受支持 |
 
 ## 系统要求
 

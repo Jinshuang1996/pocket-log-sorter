@@ -6,9 +6,10 @@
 
 ```mermaid
 flowchart LR
-    A["拖拽或文件选择器"] --> B["展开目录并过滤视频"]
+    A["拖拽或文件选择器"] --> B["展开目录并过滤视频/照片"]
     B --> C["读取 DJI djmd 第一包"]
     B --> T["匹配同名 LRF 并生成缩略图"]
+    B --> P["按扩展名识别 JPG / RAW"]
     C --> D{"ColorGammaSxS / record_mode"}
     D -->|"22"| E["D-Log 2"]
     D -->|"2"| F["D-Log"]
@@ -19,10 +20,12 @@ flowchart LR
     F --> J
     G --> J
     I --> J
+    P --> J
     T --> K["播放器与分组缩略图"]
+    P --> K
 ```
 
-应用不会用画面内容猜测色彩格式。缩略图仅解码 LRF 或原视频中的单帧；识别仍然依赖相机写入的拍摄元数据，因此不会因画面曝光或调色而误判。
+应用不会用画面内容猜测视频色彩格式。视频识别依赖相机写入的拍摄元数据；JPG 与 RAW 则按受支持扩展名归类。缩略图只承担预览功能，不参与分类判断。
 
 ## 2. 源码文件
 
@@ -107,6 +110,12 @@ ColorGammaSxS == nil && record_mode == 8 // 普通 Rec.709
 
 仅有 BT.709 时不归入普通模式，这是有意的安全策略。
 
+### 4.1 JPG 与 RAW 分支
+
+`Detector.inspect` 在视频元数据解析前检查扩展名。`jpg/jpeg` 直接映射到 `07_JPG`；常见相机 RAW 扩展名映射到 `08_RAW`。RAW 列表包含 DNG、ARW、CR2/CR3、NEF/NRW、RAF、ORF、RW2、PEF、SRW、X3F 等格式。
+
+照片缩略图使用 ImageIO 的 `CGImageSourceCreateThumbnailAtIndex` 解码，最长边限制为 960 像素并应用 EXIF 方向。ImageIO 无法解码时回退到 `NSImage`；仍然失败只影响预览，不影响扩展名分类和导出。
+
 ## 5. LRF 匹配与缩略图
 
 `ThumbnailLoader.companionLRF` 枚举视频所在目录，并按以下规则查找代理文件：
@@ -116,13 +125,13 @@ ColorGammaSxS == nil && record_mode == 8 // 普通 Rec.709
 
 找到 LRF 后，`AVAssetImageGenerator` 在大约 8% 时长、最多第 1 秒处抽取一帧，输出尺寸限制为 720×405。LRF 解码失败时重新对原视频执行同一流程。此过程不改变 `Detector.inspect` 的输入；色彩模式始终从原视频读取。
 
-文件选择器通过应用声明的 `com.pocketlogsorter.dji-lrf` UTI 接受 `.lrf` 扩展名。目录展开同时收集视频和 LRF，但只有视频会创建 `MediaItem`。显式导入的代理保存在 `importedLRFs` 中：优先按“目录 + 主体文件名”匹配；只有一个同名候选时允许跨目录匹配，避免同名 DJI 文件错误关联。
+文件选择器通过应用声明的 `com.pocketlogsorter.dji-lrf` UTI 接受 `.lrf` 扩展名，同时接受 `public.image` 与 `public.camera-raw-image`。目录展开收集视频、照片和 LRF；视频与照片创建 `MediaItem`，LRF 只进入匹配缓存。显式导入的代理保存在 `importedLRFs` 中：优先按“目录 + 主体文件名”匹配；只有一个同名候选时允许跨目录匹配，避免同名 DJI 文件错误关联。照片明确跳过 LRF 匹配。
 
-`VideoPreviewView` 默认创建 LRF 对应的 `AVPlayerItem`，并异步加载 `AVAsset.isPlayable`。代理不可播放或收到播放失败通知时，`playOriginal` 自动切换为 `true`，播放器重新载入原视频。
+`VideoPreviewView` 对视频默认创建 LRF 对应的 `AVPlayerItem`，并异步加载 `AVAsset.isPlayable`。代理不可播放或收到播放失败通知时，`playOriginal` 自动切换为 `true`。选择照片时播放器会被清空并切换到静态图片预览。
 
 ## 6. 并发与 UI 状态
 
-`SorterModel` 标记为 `@MainActor`，所有 SwiftUI 状态更新都发生在主 actor。每个视频的磁盘和元数据读取通过 `Task.detached` 执行，避免大型批次冻结界面。
+`SorterModel` 标记为 `@MainActor`，所有 SwiftUI 状态更新都发生在主 actor。每个素材的磁盘、元数据或缩略图读取通过 `Task.detached` 执行，避免大型批次冻结界面。
 
 每个 `MediaItem` 独立保存：
 
@@ -133,7 +142,7 @@ ColorGammaSxS == nil && record_mode == 8 // 普通 Rec.709
 - 匹配的 LRF URL
 - 文件操作错误
 
-`selectedForExport` 使用 `Set<UUID>` 保存多选状态。活动播放器素材和导出选择互相独立：点击卡片只改变 `activeID`，点击卡片勾选框才改变导出集合。`sort()` 在处理每个条目前先检查该集合，因此未选择的视频不会发生文件操作。
+`selectedForExport` 使用 `Set<UUID>` 保存多选状态。活动预览素材和导出选择互相独立：点击卡片只改变 `activeID`，点击卡片勾选框才改变导出集合。`sort()` 在处理每个条目前先检查该集合，因此未选择的素材不会发生文件操作。
 
 上半区使用固定布局，`VideoPlayer`、环形占比图和导出控件不会跟随素材列表移动。下半区使用同时支持水平与垂直方向的 `ScrollView`；格式列和大量缩略图只在该区域内滚动。
 
