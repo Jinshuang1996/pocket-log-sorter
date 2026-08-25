@@ -183,6 +183,39 @@ struct ThumbnailPayload {
     let duration: TimeInterval?
 }
 
+@MainActor
+enum FileDropLoader {
+    static func loadURLs(from providers: [NSItemProvider]) async -> [URL] {
+        var urls: [URL] = []
+        for provider in providers where provider.hasItemConformingToTypeIdentifier(UTType.fileURL.identifier) {
+            if let url = await loadURL(from: provider) { urls.append(url) }
+        }
+        return urls.sorted {
+            $0.lastPathComponent.localizedStandardCompare($1.lastPathComponent) == .orderedAscending
+        }
+    }
+
+    private static func loadURL(from provider: NSItemProvider) async -> URL? {
+        await withCheckedContinuation { continuation in
+            provider.loadItem(forTypeIdentifier: UTType.fileURL.identifier, options: nil) { item, _ in
+                let url: URL?
+                if let value = item as? URL {
+                    url = value
+                } else if let value = item as? NSURL {
+                    url = value as URL
+                } else if let data = item as? Data {
+                    url = URL(dataRepresentation: data, relativeTo: nil)
+                } else if let value = item as? String {
+                    url = value.hasPrefix("/") ? URL(fileURLWithPath: value) : URL(string: value)
+                } else {
+                    url = nil
+                }
+                continuation.resume(returning: url)
+            }
+        }
+    }
+}
+
 enum ThumbnailLoader {
     static func load(for videoURL: URL, preferredLRF: URL? = nil) -> ThumbnailPayload {
         if Detector.imageExtensions.contains(videoURL.pathExtension.lowercased()) {
@@ -258,6 +291,26 @@ final class SorterModel: ObservableObject {
     var videoCount: Int { items.filter { !$0.isStillImage }.count }
     var photoCount: Int { items.filter { $0.isStillImage }.count }
     var detectedGroupCount: Int { Set(items.compactMap { $0.result?.profile }).count }
+
+    func acceptDrop(providers: [NSItemProvider]) -> Bool {
+        let compatible = providers.filter {
+            $0.hasItemConformingToTypeIdentifier(UTType.fileURL.identifier)
+        }
+        guard !compatible.isEmpty else {
+            status = "拖入的内容不是本地文件"
+            return false
+        }
+        status = "正在接收拖入的素材…"
+        Task {
+            let urls = await FileDropLoader.loadURLs(from: compatible)
+            guard !urls.isEmpty else {
+                status = "无法读取拖入的文件路径"
+                return
+            }
+            add(urls: urls)
+        }
+        return true
+    }
 
     func add(urls: [URL]) {
         let expanded = expand(urls: urls)
@@ -499,8 +552,8 @@ struct Panel<Content: View>: View {
 }
 
 struct ImportDropZone: View {
-    let action: ([URL]) -> Void
     let browseAction: () -> Void
+    let dropAction: ([NSItemProvider]) -> Bool
     @State private var targeted = false
 
     var body: some View {
@@ -527,10 +580,7 @@ struct ImportDropZone: View {
         )
         .contentShape(Rectangle())
         .onTapGesture(perform: browseAction)
-        .dropDestination(for: URL.self) { urls, _ in
-            action(urls)
-            return true
-        } isTargeted: { targeted = $0 }
+        .onDrop(of: [UTType.fileURL.identifier], isTargeted: $targeted, perform: dropAction)
     }
 }
 
@@ -554,7 +604,7 @@ struct SidebarView: View {
             Panel {
                 VStack(alignment: .leading, spacing: 10) {
                     Label("导入素材", systemImage: "tray.and.arrow.down").font(.headline)
-                    ImportDropZone(action: model.add, browseAction: model.chooseFiles)
+                    ImportDropZone(browseAction: model.chooseFiles, dropAction: model.acceptDrop)
                 }
                 .padding(12)
             }
@@ -1022,6 +1072,9 @@ struct ClipCard: View {
         )
         .opacity(markedForExport ? 1 : 0.58)
         .help(item.result?.metadata ?? "正在分析")
+        .onDrag {
+            NSItemProvider(object: item.url as NSURL)
+        }
     }
 
     private func durationText(_ duration: TimeInterval?) -> String {
@@ -1171,6 +1224,7 @@ struct ContentView: View {
         .frame(width: 1320, height: 800)
         .background(appBackground)
         .preferredColorScheme(.dark)
+        .onDrop(of: [UTType.fileURL.identifier], isTargeted: nil, perform: model.acceptDrop)
         .onChange(of: model.items.count) { _ in
             if activeID == nil { activeID = model.items.first?.id }
         }

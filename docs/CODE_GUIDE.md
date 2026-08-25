@@ -39,6 +39,8 @@ flowchart LR
 | `build_dmg.sh` | 生成带“应用程序”快捷方式和安装说明的压缩 DMG |
 | `test.sh` | 编译并运行元数据读取测试 |
 
+Finder 拖入通过 `public.file-url` 的 `NSItemProvider` 显式加载，不依赖 SwiftUI 对 `URL: Transferable` 的推断。`FileDropLoader` 异步汇总多个 provider，转换 `URL`、`NSURL`、二进制 URL data 或字符串路径，随后统一交给 `SorterModel.add(urls:)` 去重和递归展开。根视图与左侧导入区共用 `SorterModel.acceptDrop`，因此整个窗口都能接收文件。素材卡片使用原文件 URL 创建 `NSItemProvider`，支持向 Finder 和外部应用拖出。
+
 ## 3. `djmd` 读取器
 
 ### 3.1 ISO BMFF box 遍历

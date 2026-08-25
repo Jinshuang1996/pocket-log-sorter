@@ -2,6 +2,17 @@
 
 All notable changes to Pocket Log Sorter are documented here.
 
+## 2.7.0 - 2026-08-25
+
+### Added
+
+- Finder files and folders can now be dragged into the import panel or anywhere in the application window.
+- Video and photo cards can be dragged out as native file URLs to Finder and compatible editing applications.
+
+### Fixed
+
+- Replaced the SwiftUI URL transfer drop handler with explicit `public.file-url` item-provider loading for reliable Finder drag-and-drop on macOS.
+
 ## 2.6.0 - 2026-08-25
 
 ### Added
